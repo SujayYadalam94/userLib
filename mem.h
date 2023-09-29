@@ -1,5 +1,5 @@
-#ifndef _SW_MEM_H
-#define _SW_MEM_H
+#ifndef _MEM_H
+#define _MEM_H
 
 #include <stdbool.h>
 

@@ -1,5 +1,5 @@
-#ifndef _SW_NVME_H
-#define _SW_NVME_H
+#ifndef _NVME_H
+#define _NVME_H
 
 #define SQ_DB(q) (q->db + (2 * q->qid) * q->db_stride)
 #define CQ_DB(q) (q->db + (1 + 2 * q->qid) * q->db_stride)

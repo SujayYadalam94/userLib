@@ -1,15 +1,5 @@
-/*
- * help.h
- *
- * A set of helper functions for retrieving or printing information related to
- * the virtual memory of a process.
- *
- * Operating Systems course, CSLab, ECE, NTUA
- *
- */
-
-#ifndef MAP_H
-#define MAP_H
+#ifndef _PA_MAPS_H
+#define _PA_MAPS_H
 
 #include <stdlib.h>
 #include <stdint.h>

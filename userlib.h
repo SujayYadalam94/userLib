@@ -1,5 +1,5 @@
-#ifndef _SW_LIB_H
-#define _SW_LIB_H
+#ifndef _USERLIB_H
+#define _USERLIB_H
 
 #include <assert.h>
 #include <errno.h>

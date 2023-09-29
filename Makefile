@@ -11,7 +11,7 @@ release: tests shim
 debug: CFLAGS += -g -DDEBUG
 debug: tests shim
 
-shim: shim.o sw_lib.o sw_mem.o sw_nvme.o help.o
+shim: shim.o userlib.o mem.o nvme.o pa_maps.o
 	gcc $(CFLAGS) $(INCLUDE) $^ $(LDFLAGS) -shared -o libshim.so
 
 tests:

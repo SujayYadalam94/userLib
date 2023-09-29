@@ -1,13 +1,3 @@
-/*
- * help.c
- *
- * A set of helper functions for retrieving or printing information related to
- * the virtual memory of a process.
- *
- * Operating Systems course, CSLab, ECE, NTUA
- *
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -20,7 +10,7 @@
 #include <syscall.h>
 #include <inttypes.h>
 
-#include "help.h"
+#include "pa_maps.h"
 
 #include <libsyscall_intercept_hook_point.h>
 

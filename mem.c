@@ -1,6 +1,6 @@
-#include "help.h"
-#include "sw_lib.h"
-#include "sw_mem.h"
+#include "pa_maps.h"
+#include "userlib.h"
+#include "mem.h"
 
 extern FILE *logFile;
 

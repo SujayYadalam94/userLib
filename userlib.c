@@ -8,10 +8,10 @@
 #include <sys/stat.h>
 #include <syscall.h>
 
-#include "help.h"
-#include "sw_lib.h"
-#include "sw_mem.h"
-#include "sw_nvme.h"
+#include "pa_maps.h"
+#include "userlib.h"
+#include "mem.h"
+#include "nvme.h"
 
 #include <libsyscall_intercept_hook_point.h>
 
