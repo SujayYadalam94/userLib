@@ -55,18 +55,18 @@ struct nvme_completion_entry {
     __le16  status;     /* did the command fail, and if so, why? */
 };
 
-struct sw_req *nvme_init_request(struct sw_queue *queue);
+struct bypassd_req *nvme_init_request(struct bypassd_queue *queue);
 
-void nvme_setup_rw_cmd(struct sw_req *req, struct sw_file *fp,
+void nvme_setup_rw_cmd(struct bypassd_req *req, struct bypassd_file *fp,
             uint8_t opcode, unsigned long slba, size_t len);
 
-void nvme_setup_prp(struct sw_req *req, unsigned int nr_pages);
+void nvme_setup_prp(struct bypassd_req *req, unsigned int nr_pages);
 
-void nvme_submit_cmd(struct sw_queue *queue, struct nvme_rw_command *cmd);
+void nvme_submit_cmd(struct bypassd_queue *queue, struct nvme_rw_command *cmd);
 
-void nvme_poll(struct sw_queue *queue, __u16 cmd_id);
+void nvme_poll(struct bypassd_queue *queue, __u16 cmd_id);
 
-void nvme_process_completions(struct sw_queue *queue);
+void nvme_process_completions(struct bypassd_queue *queue);
 
 #endif
 

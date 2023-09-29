@@ -36,12 +36,12 @@ int shim_do_open(char* filename, int flags, mode_t mode, int* result) {
     }
 
     if (strstr(fullpath, DEVICE_DIR) != NULL) {
-        ret = sw_open(fullpath, flags, mode, result);
+        ret = bypassd_open(fullpath, flags, mode, result);
     } else {
         *result = syscall_no_intercept(SYS_open, filename, flags, mode);
     }
 
-    sw_log("[OPEN]: filename=%s res=%d\n", filename, *result);
+    bypassd_log("[OPEN]: filename=%s res=%d\n", filename, *result);
     return ret;
 }
 
@@ -60,31 +60,31 @@ int shim_do_openat(int dfd, char* filename, int flags, mode_t mode, int* result)
         strcat(fullpath, "/");
         strcat(fullpath, filename);
     } else {
-        sw_log("[OPENAT]: Don't know how to handle relative openat\n");
+        bypassd_log("[OPENAT]: Don't know how to handle relative openat\n");
         *result = syscall_no_intercept(SYS_openat, dfd, filename, flags, mode);
         return 0;
     }
 
     if (strstr(fullpath, DEVICE_DIR) != NULL) {
-        ret = sw_open(fullpath, flags, mode, result);
+        ret = bypassd_open(fullpath, flags, mode, result);
     } else {
         *result = syscall_no_intercept(SYS_openat, dfd, filename, flags, mode);
     }
 
-    sw_log("[OPENAT]: dfd=%d filename=%s flags=0x%x\n", dfd, filename, flags);
+    bypassd_log("[OPENAT]: dfd=%d filename=%s flags=0x%x\n", dfd, filename, flags);
     return ret;
 }
 
 int shim_do_close(int fd, int* result) {
-    struct sw_file *fp;
+    struct bypassd_file *fp;
     bool opened;
 
-    fp = &sw_info->sw_open_files[fd];
+    fp = &bypassd_info->bypassd_open_files[fd];
     opened = fp->opened;
 
     if (opened) {
-        sw_close(fd, result);
-    } else { // Not opened with SW interface
+        bypassd_close(fd, result);
+    } else { // Not opened with BypassD interface
         *result = syscall_no_intercept(SYS_close, fd);
     }
 
@@ -92,27 +92,27 @@ int shim_do_close(int fd, int* result) {
 }
 
 int shim_do_read(int fd, void* buf, size_t count, size_t* result) {
-    struct sw_file *fp;
+    struct bypassd_file *fp;
     off_t offset;
     bool opened;
     int ret;
 
     clock_gettime(CLOCK_REALTIME, &total_start);
-    sw_log("[READ]: fd=%d size=%ld\n", fd, count);
-    fp = &sw_info->sw_open_files[fd];
+    bypassd_log("[READ]: fd=%d size=%ld\n", fd, count);
+    fp = &bypassd_info->bypassd_open_files[fd];
 
     opened = fp->opened;
 
     if (opened) {
         offset = atomic_load(&fp->offset);
-        ret = sw_read(fp, buf, count, offset, result);
+        ret = bypassd_read(fp, buf, count, offset, result);
         if (ret == 0) {
             atomic_fetch_add(&fp->offset, *result);
         } else {
-            sw_log("[READ]: failed\n");
+            bypassd_log("[READ]: failed\n");
             *result = 0;
         }
-    } else { // Not opened with SW interface
+    } else { // Not opened with BypassD interface
         *result = syscall_no_intercept(SYS_read, fd, buf, count);
     }
 
@@ -123,22 +123,22 @@ int shim_do_read(int fd, void* buf, size_t count, size_t* result) {
 }
 
 int shim_do_pread64(int fd, void* buf, size_t count, loff_t offset, size_t* result) {
-    struct sw_file *fp;
+    struct bypassd_file *fp;
     bool opened;
     int ret;
 
     clock_gettime(CLOCK_REALTIME, &total_start);
-    sw_log("[PREAD64]: fd=%d size=%ld, offset=%ld\n", fd, count, offset);
-    fp = &sw_info->sw_open_files[fd];
+    bypassd_log("[PREAD64]: fd=%d size=%ld, offset=%ld\n", fd, count, offset);
+    fp = &bypassd_info->bypassd_open_files[fd];
 
     opened = fp->opened;
 
     if (opened) {
-        ret = sw_read(fp, buf, count, offset, result);
+        ret = bypassd_read(fp, buf, count, offset, result);
         if (ret != 0)  {
-            sw_log("[PREAD64]: failed\n");
+            bypassd_log("[PREAD64]: failed\n");
         }
-    } else { // Not opened with SW interface
+    } else { // Not opened with BypassD interface
         *result = syscall_no_intercept(SYS_pread64, fd, buf, count, offset);
     }
     clock_gettime(CLOCK_REALTIME, &total_end);
@@ -148,18 +148,18 @@ int shim_do_pread64(int fd, void* buf, size_t count, loff_t offset, size_t* resu
 }
 
 int shim_do_write(int fd, void* buf, size_t count, size_t* result) {
-    struct sw_file *fp;
+    struct bypassd_file *fp;
     off_t offset;
     bool opened;
     int ret;
 
-    fp = &sw_info->sw_open_files[fd];
+    fp = &bypassd_info->bypassd_open_files[fd];
     opened = fp->opened;
 
     if (opened) {
         offset = atomic_load(&fp->offset);
-        sw_log("[WRITE]: fd=%d size=%ld\n", fd, count);
-        ret = sw_write(fp, buf, count, offset, result);
+        bypassd_log("[WRITE]: fd=%d size=%ld\n", fd, count);
+        ret = bypassd_write(fp, buf, count, offset, result);
         if (ret == 0) {
             atomic_fetch_add(&fp->offset, *result);
         }
@@ -171,16 +171,16 @@ int shim_do_write(int fd, void* buf, size_t count, size_t* result) {
 }
 
 int shim_do_pwrite64(int fd, void* buf, size_t count, loff_t offset, size_t* result) {
-    struct sw_file *fp;
+    struct bypassd_file *fp;
     bool opened;
     int ret;
 
-    fp = &sw_info->sw_open_files[fd];
+    fp = &bypassd_info->bypassd_open_files[fd];
     opened = fp->opened;
 
     if (opened) {
-        sw_log("[PWRITE64]: fd=%d size=%ld offset=%ld\n", fd, count, offset);
-        ret = sw_write(fp, buf, count, offset, result);
+        bypassd_log("[PWRITE64]: fd=%d size=%ld offset=%ld\n", fd, count, offset);
+        ret = bypassd_write(fp, buf, count, offset, result);
         if (ret != 0) {
             assert(0);
         }
@@ -192,14 +192,14 @@ int shim_do_pwrite64(int fd, void* buf, size_t count, loff_t offset, size_t* res
 }
 
 int shim_do_lseek(int fd, off_t offset, int whence, off_t* result) {
-    struct sw_file *fp;
+    struct bypassd_file *fp;
     bool opened;
 
-    fp = &sw_info->sw_open_files[fd];
+    fp = &bypassd_info->bypassd_open_files[fd];
     opened = fp->opened;
 
     if (opened) {
-        sw_lseek(fp, offset, whence, result);
+        bypassd_lseek(fp, offset, whence, result);
     } else {
         *result = syscall_no_intercept(SYS_lseek, fd, offset, whence);
     }
@@ -208,16 +208,16 @@ int shim_do_lseek(int fd, off_t offset, int whence, off_t* result) {
 }
 
 int shim_do_fallocate(int fd, int mode, off_t offset, off_t len, int* result) {
-    struct sw_file *fp;
+    struct bypassd_file *fp;
     bool opened = 0;
 
     if (fd < MAX_FILES) {
-        fp = &sw_info->sw_open_files[fd];
+        fp = &bypassd_info->bypassd_open_files[fd];
         opened = fp->opened;
     }
 
     if (opened) {
-        sw_fallocate(fp, mode, offset, len, result);
+        bypassd_fallocate(fp, mode, offset, len, result);
     } else {
         *result = syscall_no_intercept(SYS_fallocate, fd, mode, offset, len);
     }
@@ -226,16 +226,16 @@ int shim_do_fallocate(int fd, int mode, off_t offset, off_t len, int* result) {
 }
 
 int shim_do_ftruncate(int fd, off_t length, int* result) {
-    struct sw_file *fp;
+    struct bypassd_file *fp;
     bool opened = 0;
 
     if (fd < MAX_FILES) {
-        fp = &sw_info->sw_open_files[fd];
+        fp = &bypassd_info->bypassd_open_files[fd];
         opened = fp->opened;
     }
 
     if (opened) {
-        sw_ftruncate(fp, length, result);
+        bypassd_ftruncate(fp, length, result);
     } else {
         *result = syscall_no_intercept(SYS_ftruncate, fd, length);
     }
@@ -244,17 +244,17 @@ int shim_do_ftruncate(int fd, off_t length, int* result) {
 }
 
 int shim_do_fdatasync(int fd, int* result) {
-    struct sw_file *fp;
+    struct bypassd_file *fp;
     bool opened = 0;
 
     if (fd < MAX_FILES) {
-        fp = &sw_info->sw_open_files[fd];
+        fp = &bypassd_info->bypassd_open_files[fd];
         opened = fp->opened;
     }
 
     if (opened) {
         if (fp->data_modified) {
-            sw_fdatasync();
+            bypassd_fdatasync();
             fp->data_modified = false;
         }
         *result = 0;
@@ -266,11 +266,11 @@ int shim_do_fdatasync(int fd, int* result) {
 }
 
 int shim_do_fsync(int fd, int* result) {
-    struct sw_file *fp;
+    struct bypassd_file *fp;
     bool opened = 0;
 
     if (fd < MAX_FILES) {
-        fp = &sw_info->sw_open_files[fd];
+        fp = &bypassd_info->bypassd_open_files[fd];
         opened = fp->opened;
     }
 
@@ -282,7 +282,7 @@ int shim_do_fsync(int fd, int* result) {
             *result = 0;
         }
         if (fp->data_modified) {
-            sw_fdatasync();
+            bypassd_fdatasync();
             fp->data_modified = false;
         }
     } else {
@@ -335,7 +335,7 @@ static int syscall_hook(long syscall_number, long arg0, long arg1,
 static __attribute__((constructor)) void initialize(void) {
     int ret;
 
-    ret = sw_init();
+    ret = bypassd_init();
     if (ret != 0) {
         fprintf(stderr, "Error initializating library\n");
         return;
@@ -347,8 +347,8 @@ static __attribute__((constructor)) void initialize(void) {
 
 static __attribute__((destructor)) void finalize(void) {
 
-    sw_log("Exiting library\n");
+    bypassd_log("Exiting library\n");
 
-    sw_exit();
+    bypassd_exit();
     fclose(logFile);
 }

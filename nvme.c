@@ -13,9 +13,9 @@ double avg = 0;
 int scount = 0;
 __thread struct timespec stime,etime;
 
-struct sw_req *nvme_init_request(struct sw_queue *queue) {
+struct bypassd_req *nvme_init_request(struct bypassd_queue *queue) {
     __u16 cmd_id;
-    struct sw_req *req;
+    struct bypassd_req *req;
 
     cmd_id = __atomic_fetch_add(&queue->cmd_id, 1, __ATOMIC_SEQ_CST);
     cmd_id = cmd_id % queue->q_depth;
@@ -30,7 +30,7 @@ struct sw_req *nvme_init_request(struct sw_queue *queue) {
     return req;
 }
 
-inline void nvme_setup_rw_cmd(struct sw_req *req, struct sw_file *fp,
+inline void nvme_setup_rw_cmd(struct bypassd_req *req, struct bypassd_file *fp,
             uint8_t opcode, unsigned long slba, size_t len) {
     struct nvme_rw_command *cmd = req->cmd;
 
@@ -47,8 +47,8 @@ inline void nvme_setup_rw_cmd(struct sw_req *req, struct sw_file *fp,
     return;
 }
 
-void nvme_setup_prp(struct sw_req *req, unsigned int nr_pages) {
-    struct sw_user_buf *prp_buf;
+void nvme_setup_prp(struct bypassd_req *req, unsigned int nr_pages) {
+    struct bypassd_user_buf *prp_buf;
     __u64 *pa_list;
     __u64 *prp_vaddr;
     unsigned int i;
@@ -61,13 +61,13 @@ void nvme_setup_prp(struct sw_req *req, unsigned int nr_pages) {
     } else if (nr_pages == 2) {
         req->prp2 = pa_list[1];
     } else if (nr_pages > 2) {
-        sw_spinlock_lock(&sw_info->prp_lock);
-        prp_buf = LIST_FIRST(&sw_info->sw_prp_free_list);
+        bypassd_spinlock_lock(&bypassd_info->prp_lock);
+        prp_buf = LIST_FIRST(&bypassd_info->bypassd_prp_free_list);
         if (!prp_buf) {
             assert(0);
         }
         LIST_REMOVE(prp_buf, prp_list);
-        sw_spinlock_unlock(&sw_info->prp_lock);
+        bypassd_spinlock_unlock(&bypassd_info->prp_lock);
 
         req->prp_buf = prp_buf;
 
@@ -79,45 +79,45 @@ void nvme_setup_prp(struct sw_req *req, unsigned int nr_pages) {
     }
 }
 
-void nvme_submit_cmd(struct sw_queue *queue, struct nvme_rw_command *cmd) {
+void nvme_submit_cmd(struct bypassd_queue *queue, struct nvme_rw_command *cmd) {
 #ifdef DEBUG
     clock_gettime(CLOCK_REALTIME, &stime);
 #endif
-    sw_spinlock_lock(&queue->sq_lock);
+    bypassd_spinlock_lock(&queue->sq_lock);
     memcpy(&queue->sq_cmds[queue->sq_tail], cmd, sizeof(*cmd));
     if (++queue->sq_tail == queue->q_depth)
         queue->sq_tail = 0;
     writel(queue->sq_tail, SQ_DB(queue));
-    sw_spinlock_unlock(&queue->sq_lock);
+    bypassd_spinlock_unlock(&queue->sq_lock);
 
     if (cmd->opcode == nvme_cmd_write) {
         atomic_fetch_add(&queue->pending_io_writes, 1);
     }
 }
 
-void complete_io(struct sw_req *req) {
+void complete_io(struct bypassd_req *req) {
     if (req->prp_buf) {
         memset(req->prp_buf->vaddr, 0, PAGE_SIZE);
-        sw_spinlock_lock(&sw_info->prp_lock);
-        LIST_INSERT_HEAD(&sw_info->sw_prp_free_list, req->prp_buf, prp_list);
-        sw_spinlock_unlock(&sw_info->prp_lock); 
+        bypassd_spinlock_lock(&bypassd_info->prp_lock);
+        LIST_INSERT_HEAD(&bypassd_info->bypassd_prp_free_list, req->prp_buf, prp_list);
+        bypassd_spinlock_unlock(&bypassd_info->prp_lock); 
     }
 
     // Free buffer only for writes
-    // For reads, free after memcpy(). This is done in sw_read().
+    // For reads, free after memcpy(). This is done in bypassd_read().
     if (req->cmd->opcode == nvme_cmd_write) {
-        sw_put_buffer(req);
+        bypassd_put_buffer(req);
     }
 
     req->status = IO_COMPLETE;
     free(req->cmd);
 }
 
-static inline bool nvme_cqe_pending(struct sw_queue *queue) {
+static inline bool nvme_cqe_pending(struct bypassd_queue *queue) {
     return (queue->cqes[queue->cq_head].status & 1) == queue->cq_phase;
 }
 
-static inline void nvme_update_cq_head(struct sw_queue *queue) {
+static inline void nvme_update_cq_head(struct bypassd_queue *queue) {
         queue->cq_head++;
         if (queue->cq_head == queue->q_depth) {
             queue->cq_head = 0;
@@ -127,8 +127,8 @@ static inline void nvme_update_cq_head(struct sw_queue *queue) {
 
 // Returns when command with cmd_id is complete
 // If finds other entries, processes completions for other requests
-void nvme_poll(struct sw_queue *queue, __u16 cmd_id) {
-    volatile struct sw_req *req;
+void nvme_poll(struct bypassd_queue *queue, __u16 cmd_id) {
+    volatile struct bypassd_req *req;
     volatile struct nvme_completion_entry *cqe;
     __u16 start = 0, end = 0;
 
@@ -141,7 +141,7 @@ void nvme_poll(struct sw_queue *queue, __u16 cmd_id) {
         if (!nvme_cqe_pending(queue))
             continue;
 
-        if (sw_spinlock_trylock(&queue->cq_lock) == 1) {
+        if (bypassd_spinlock_trylock(&queue->cq_lock) == 1) {
             start = queue->cq_head;
             while (nvme_cqe_pending(queue)) {
                 nvme_update_cq_head(queue);
@@ -151,7 +151,7 @@ void nvme_poll(struct sw_queue *queue, __u16 cmd_id) {
             if (start != end)
                 writel(queue->cq_head, CQ_DB(queue));
 
-            sw_spinlock_unlock(&queue->cq_lock);
+            bypassd_spinlock_unlock(&queue->cq_lock);
 
             while (start != end) {
                 cqe = &queue->cqes[start];
@@ -174,11 +174,11 @@ void nvme_poll(struct sw_queue *queue, __u16 cmd_id) {
     return;
 }
 
-void nvme_process_completions(struct sw_queue *queue) {
+void nvme_process_completions(struct bypassd_queue *queue) {
     volatile struct nvme_completion_entry *cqe;
     __u16 start = 0, end = 0;
 
-    if (sw_spinlock_trylock(&queue->cq_lock) == 1) {
+    if (bypassd_spinlock_trylock(&queue->cq_lock) == 1) {
         start = queue->cq_head;
         while (nvme_cqe_pending(queue)) {
             nvme_update_cq_head(queue);
@@ -188,7 +188,7 @@ void nvme_process_completions(struct sw_queue *queue) {
         if (start != end)
             writel(queue->cq_head, CQ_DB(queue));
 
-        sw_spinlock_unlock(&queue->cq_lock);
+        bypassd_spinlock_unlock(&queue->cq_lock);
 
         while (start != end) {
             cqe = &queue->cqes[start];

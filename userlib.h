@@ -25,24 +25,24 @@
 #define QUEUE_PER_THREAD
 #undef ASYNC_WRITES
 
-#define SW_BUF_POOL_SIZE (8 * 1024 * 1024UL)
+#define BYPASSD_BUF_POOL_SIZE (8 * 1024 * 1024UL)
 
 #define BBUF_SIZE  (128 * 1024UL)
 #define BBUF_THRESHOLD (0)
-#define SW_NUM_PRP_BUFFERS 16
+#define BYPASSD_NUM_PRP_BUFFERS 16
 #define FALLOC_SIZE 16
 
 #define MAX_FILES 1024
-#define SW_NUM_QUEUES 16
+#define BYPASSD_NUM_QUEUES 16
 
 //---------------------------------------------------------------------------
 
-#define IOCTL_GET_NS_INFO       _IOR('N', 0x50, struct sw_ns_info)
-#define IOCTL_CREATE_QUEUE_PAIR _IOR('N', 0x51, struct sw_ioctl_queue_info)
+#define IOCTL_GET_NS_INFO       _IOR('N', 0x50, struct bypassd_ns_info)
+#define IOCTL_CREATE_QUEUE_PAIR _IOR('N', 0x51, struct bypassd_ioctl_queue_info)
 #define IOCTL_DELETE_QUEUE_PAIR _IOW('N', 0x52, int)
-#define IOCTL_GET_USER_BUF      _IOWR('N', 0x53, struct sw_ioctl_buf_info)
-#define IOCTL_PUT_USER_BUF      _IOW('N', 0x54, struct sw_ioctl_buf_info)
-#define IOCTL_GET_BUF_ADDR      _IOWR('N', 0x55, struct sw_ioctl_buf_info)
+#define IOCTL_GET_USER_BUF      _IOWR('N', 0x53, struct bypassd_ioctl_buf_info)
+#define IOCTL_PUT_USER_BUF      _IOW('N', 0x54, struct bypassd_ioctl_buf_info)
+#define IOCTL_GET_BUF_ADDR      _IOWR('N', 0x55, struct bypassd_ioctl_buf_info)
 
 
 #define BLK_SIZE 512
@@ -51,9 +51,9 @@
 #define BLK_DOWN_ALIGN(len) ((len)&(~((typeof(len))(BLK_SIZE)-1)))
 
 #ifdef DEBUG
-void sw_log(const char *fmt, ...);
+void bypassd_log(const char *fmt, ...);
 #else
-#define sw_log(fmt, ...)
+#define bypassd_log(fmt, ...)
 #endif
 
 enum {
@@ -62,15 +62,15 @@ enum {
     IO_ERROR = 3,
 };
 
-struct sw_ns_info {
+struct bypassd_ns_info {
     unsigned int ns_id;
     unsigned int lba_start;
     int lba_shift;
 };
 
-struct sw_req {
-    struct sw_user_buf *prp_buf;
-    struct sw_user_buf *buf;
+struct bypassd_req {
+    struct bypassd_user_buf *prp_buf;
+    struct bypassd_user_buf *buf;
 
     struct nvme_rw_command *cmd;
 
@@ -80,7 +80,7 @@ struct sw_req {
 };
 
 // Get queue information from kernel module
-struct sw_ioctl_queue_info {
+struct bypassd_ioctl_queue_info {
     struct nvme_rw_command *sq_cmds;
     struct nvme_completion_entry  *cqes;
     __u32 *db;
@@ -90,7 +90,7 @@ struct sw_ioctl_queue_info {
     int db_stride;
 };
 
-struct sw_queue {
+struct bypassd_queue {
     struct nvme_rw_command *sq_cmds;
     volatile struct nvme_completion_entry *cqes;
     __u32 *db;
@@ -102,16 +102,16 @@ struct sw_queue {
     __u16 sq_tail, cq_head;
     __u8  cq_phase;
 
-    sw_spinlock_t sq_lock;
-    sw_spinlock_t cq_lock;
+    bypassd_spinlock_t sq_lock;
+    bypassd_spinlock_t cq_lock;
 
-    struct sw_req* rqs;
+    struct bypassd_req* rqs;
     __u16 cmd_id;
 
     int pending_io_writes;
 };
 
-struct sw_file {
+struct bypassd_file {
     char filename[256];
     size_t size;
 
@@ -124,8 +124,8 @@ struct sw_file {
     mode_t mode;
     loff_t append_offset;
 
-    struct sw_queue *queue;
-    struct sw_ns_info *ns_info;
+    struct bypassd_queue *queue;
+    struct bypassd_ns_info *ns_info;
 
     bool opened;
     bool data_modified;
@@ -136,56 +136,56 @@ struct sw_file {
 };
 
 // struct used for IOCTL
-struct sw_ioctl_buf_info {
+struct bypassd_ioctl_buf_info {
     void *vaddr;
     unsigned int nr_pages;
     __u64 *dma_addr_list;
 };
 
-struct sw_user_buf {
+struct bypassd_user_buf {
     void *vaddr;
     unsigned int nr_pages;
     __u64 *dma_addr_list;
 
     int user;
-    LIST_ENTRY(sw_user_buf) buf_list;
-    LIST_ENTRY(sw_user_buf) prp_list;
+    LIST_ENTRY(bypassd_user_buf) buf_list;
+    LIST_ENTRY(bypassd_user_buf) prp_list;
 };
 
-struct sw_info {
-    struct sw_ns_info ns_info;
-    struct sw_file sw_open_files[MAX_FILES];
+struct bypassd_info {
+    struct bypassd_ns_info ns_info;
+    struct bypassd_file bypassd_open_files[MAX_FILES];
 
     int nr_open_files;
     int nr_queues;
 
     int i_fd; //IOCTL fd
 
-    struct sw_queue *sw_queue_list[SW_NUM_QUEUES];
-    LIST_HEAD(buf_list, sw_user_buf) sw_buf_list;
-    LIST_HEAD(prp_list, sw_user_buf) sw_prp_free_list;
+    struct bypassd_queue *bypassd_queue_list[BYPASSD_NUM_QUEUES];
+    LIST_HEAD(buf_list, bypassd_user_buf) bypassd_buf_list;
+    LIST_HEAD(prp_list, bypassd_user_buf) bypassd_prp_free_list;
 
-    sw_spinlock_t prp_lock;
-    sw_spinlock_t buf_lock;
+    bypassd_spinlock_t prp_lock;
+    bypassd_spinlock_t buf_lock;
 };
 
-struct sw_info *sw_info;
-extern int sw_initialized;
+struct bypassd_info *bypassd_info;
+extern int bypassd_initialized;
 
 char *bounce_buf;
-struct sw_user_buf buf_info;
+struct bypassd_user_buf buf_info;
 FILE *logFile;
 
-long sw_gettid();
-int sw_open(char* filename, int flags, mode_t mode, int *result);
-int sw_close(int fd, int *result);
-int sw_read(struct sw_file *fp, char* buf, size_t len, loff_t offset, size_t* result);
-int sw_write(struct sw_file *fp, char* buf, size_t len, loff_t offset, size_t* result);
-int sw_lseek(struct sw_file *fp, off_t offset, int whence, off_t* result);
-int sw_fallocate(struct sw_file *fp, int mode, off_t offset, off_t len, int* result);
-int sw_ftruncate(struct sw_file *fp, off_t length, int* result);
-void sw_fdatasync();
-void sw_exit();
-int sw_init();
+long bypassd_gettid();
+int bypassd_open(char* filename, int flags, mode_t mode, int *result);
+int bypassd_close(int fd, int *result);
+int bypassd_read(struct bypassd_file *fp, char* buf, size_t len, loff_t offset, size_t* result);
+int bypassd_write(struct bypassd_file *fp, char* buf, size_t len, loff_t offset, size_t* result);
+int bypassd_lseek(struct bypassd_file *fp, off_t offset, int whence, off_t* result);
+int bypassd_fallocate(struct bypassd_file *fp, int mode, off_t offset, off_t len, int* result);
+int bypassd_ftruncate(struct bypassd_file *fp, off_t length, int* result);
+void bypassd_fdatasync();
+void bypassd_exit();
+int bypassd_init();
 
 #endif
