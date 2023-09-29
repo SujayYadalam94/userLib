@@ -519,7 +519,7 @@ int sw_ftruncate(struct sw_file *fp, off_t length, int* result) {
     return 0;
 }
 
-void sw_fdatasync(struct sw_file *fp) {
+void sw_fdatasync() {
 #ifdef QUEUE_PER_THREAD
     int i;
     struct sw_queue *queue;
