@@ -12,16 +12,15 @@
 
 #include "userlib.h"
 
-#define PATH_SIZE 4096
-const char DEVICE_DIR[20] = "/mnt/nvme";
+#define PATH_SIZE 4096 // Max length of the full file path
 
-double total_avg = 0;
-int total_count = 0;
-__thread struct timespec total_start, total_end;
+// We use the below prefix to filter I/O accesses going to the NVMe device
+// Change the path to the directory that the device is mounted on
+const char DEVICE_DIR[20] = "/mnt/nvme";
 
 int shim_do_open(char* filename, int flags, mode_t mode, int* result) {
     char fullpath[PATH_SIZE];
-    int ret = 0;
+    int  ret = 0;
 
     memset(fullpath, 0, sizeof(fullpath));
 
@@ -35,19 +34,20 @@ int shim_do_open(char* filename, int flags, mode_t mode, int* result) {
         strcat(fullpath, filename);
     }
 
+    // Open the file with BypassD interface if the file is in the device directory
     if (strstr(fullpath, DEVICE_DIR) != NULL) {
         ret = bypassd_open(fullpath, flags, mode, result);
     } else {
         *result = syscall_no_intercept(SYS_open, filename, flags, mode);
     }
 
-    bypassd_log("[OPEN]: filename=%s res=%d\n", filename, *result);
+    bypassd_log("[%s]: filename=%s res=%d\n", __func__, filename, *result);
     return ret;
 }
 
 int shim_do_openat(int dfd, char* filename, int flags, mode_t mode, int* result) {
     char fullpath[PATH_SIZE];
-    int ret = 0;
+    int  ret = 0;
 
     memset(fullpath, 0, sizeof(fullpath));
 
@@ -60,26 +60,28 @@ int shim_do_openat(int dfd, char* filename, int flags, mode_t mode, int* result)
         strcat(fullpath, "/");
         strcat(fullpath, filename);
     } else {
-        bypassd_log("[OPENAT]: Don't know how to handle relative openat\n");
+        // TODO: Need to handle relative openat
+        bypassd_log("[%s]: Don't know how to handle relative openat\n", __func__);
         *result = syscall_no_intercept(SYS_openat, dfd, filename, flags, mode);
         return 0;
     }
 
+    // Open the file with BypassD interface if the file is in the device directory
     if (strstr(fullpath, DEVICE_DIR) != NULL) {
         ret = bypassd_open(fullpath, flags, mode, result);
     } else {
         *result = syscall_no_intercept(SYS_openat, dfd, filename, flags, mode);
     }
 
-    bypassd_log("[OPENAT]: dfd=%d filename=%s flags=0x%x\n", dfd, filename, flags);
+    bypassd_log("[%s]: dfd=%d filename=%s flags=0x%x\n", __func__, dfd, filename, flags);
     return ret;
 }
 
 int shim_do_close(int fd, int* result) {
     struct bypassd_file *fp;
-    bool opened;
+    bool   opened;
 
-    fp = &bypassd_info->bypassd_open_files[fd];
+    fp     = &bypassd_info->bypassd_open_files[fd];
     opened = fp->opened;
 
     if (opened) {
@@ -93,14 +95,11 @@ int shim_do_close(int fd, int* result) {
 
 int shim_do_read(int fd, void* buf, size_t count, size_t* result) {
     struct bypassd_file *fp;
-    off_t offset;
-    bool opened;
-    int ret;
+    off_t  offset;
+    bool   opened;
+    int    ret;
 
-    clock_gettime(CLOCK_REALTIME, &total_start);
-    bypassd_log("[READ]: fd=%d size=%ld\n", fd, count);
-    fp = &bypassd_info->bypassd_open_files[fd];
-
+    fp     = &bypassd_info->bypassd_open_files[fd];
     opened = fp->opened;
 
     if (opened) {
@@ -109,56 +108,50 @@ int shim_do_read(int fd, void* buf, size_t count, size_t* result) {
         if (ret == 0) {
             atomic_fetch_add(&fp->offset, *result);
         } else {
-            bypassd_log("[READ]: failed\n");
+            bypassd_log("[%s]: failed\n", __func__);
             *result = 0;
         }
     } else { // Not opened with BypassD interface
         *result = syscall_no_intercept(SYS_read, fd, buf, count);
     }
 
-    clock_gettime(CLOCK_REALTIME, &total_end);
-    total_avg += (total_end.tv_sec - total_start.tv_sec) * 1e6 + (total_end.tv_nsec - total_start.tv_nsec) / 1e3;
-    total_count++;
+    bypassd_log("[%s]: fd=%d size=%ld\n", __func__, fd, count);
     return 0;
 }
 
 int shim_do_pread64(int fd, void* buf, size_t count, loff_t offset, size_t* result) {
     struct bypassd_file *fp;
-    bool opened;
-    int ret;
+    bool   opened;
+    int    ret;
 
-    clock_gettime(CLOCK_REALTIME, &total_start);
-    bypassd_log("[PREAD64]: fd=%d size=%ld, offset=%ld\n", fd, count, offset);
-    fp = &bypassd_info->bypassd_open_files[fd];
-
+    bypassd_log("[%s]: fd=%d size=%ld, offset=%ld\n", __func__, fd, count, offset);
+    fp     = &bypassd_info->bypassd_open_files[fd];
     opened = fp->opened;
 
     if (opened) {
         ret = bypassd_read(fp, buf, count, offset, result);
         if (ret != 0)  {
-            bypassd_log("[PREAD64]: failed\n");
+            bypassd_log("[%s]: failed\n", __func__);
         }
     } else { // Not opened with BypassD interface
         *result = syscall_no_intercept(SYS_pread64, fd, buf, count, offset);
     }
-    clock_gettime(CLOCK_REALTIME, &total_end);
-    total_avg += (total_end.tv_sec - total_start.tv_sec) * 1e6 + (total_end.tv_nsec - total_start.tv_nsec) / 1e3;
-    total_count++;
+
     return 0;
 }
 
 int shim_do_write(int fd, void* buf, size_t count, size_t* result) {
     struct bypassd_file *fp;
-    off_t offset;
-    bool opened;
-    int ret;
+    off_t  offset;
+    bool   opened;
+    int    ret;
 
-    fp = &bypassd_info->bypassd_open_files[fd];
+    fp     = &bypassd_info->bypassd_open_files[fd];
     opened = fp->opened;
 
     if (opened) {
         offset = atomic_load(&fp->offset);
-        bypassd_log("[WRITE]: fd=%d size=%ld\n", fd, count);
+        bypassd_log("[%s]: fd=%d size=%ld\n", __func__, fd, count);
         ret = bypassd_write(fp, buf, count, offset, result);
         if (ret == 0) {
             atomic_fetch_add(&fp->offset, *result);
@@ -172,14 +165,14 @@ int shim_do_write(int fd, void* buf, size_t count, size_t* result) {
 
 int shim_do_pwrite64(int fd, void* buf, size_t count, loff_t offset, size_t* result) {
     struct bypassd_file *fp;
-    bool opened;
-    int ret;
+    bool   opened;
+    int    ret;
 
-    fp = &bypassd_info->bypassd_open_files[fd];
+    fp     = &bypassd_info->bypassd_open_files[fd];
     opened = fp->opened;
 
     if (opened) {
-        bypassd_log("[PWRITE64]: fd=%d size=%ld offset=%ld\n", fd, count, offset);
+        bypassd_log("[%s]: fd=%d size=%ld offset=%ld\n", __func__, fd, count, offset);
         ret = bypassd_write(fp, buf, count, offset, result);
         if (ret != 0) {
             assert(0);
@@ -193,9 +186,9 @@ int shim_do_pwrite64(int fd, void* buf, size_t count, loff_t offset, size_t* res
 
 int shim_do_lseek(int fd, off_t offset, int whence, off_t* result) {
     struct bypassd_file *fp;
-    bool opened;
+    bool   opened;
 
-    fp = &bypassd_info->bypassd_open_files[fd];
+    fp     = &bypassd_info->bypassd_open_files[fd];
     opened = fp->opened;
 
     if (opened) {
@@ -209,12 +202,10 @@ int shim_do_lseek(int fd, off_t offset, int whence, off_t* result) {
 
 int shim_do_fallocate(int fd, int mode, off_t offset, off_t len, int* result) {
     struct bypassd_file *fp;
-    bool opened = 0;
+    bool   opened = 0;
 
-    if (fd < MAX_FILES) {
-        fp = &bypassd_info->bypassd_open_files[fd];
-        opened = fp->opened;
-    }
+    fp     = &bypassd_info->bypassd_open_files[fd];
+    opened = fp->opened;
 
     if (opened) {
         bypassd_fallocate(fp, mode, offset, len, result);
@@ -227,12 +218,10 @@ int shim_do_fallocate(int fd, int mode, off_t offset, off_t len, int* result) {
 
 int shim_do_ftruncate(int fd, off_t length, int* result) {
     struct bypassd_file *fp;
-    bool opened = 0;
+    bool   opened = 0;
 
-    if (fd < MAX_FILES) {
-        fp = &bypassd_info->bypassd_open_files[fd];
-        opened = fp->opened;
-    }
+    fp     = &bypassd_info->bypassd_open_files[fd];
+    opened = fp->opened;
 
     if (opened) {
         bypassd_ftruncate(fp, length, result);
@@ -245,14 +234,13 @@ int shim_do_ftruncate(int fd, off_t length, int* result) {
 
 int shim_do_fdatasync(int fd, int* result) {
     struct bypassd_file *fp;
-    bool opened = 0;
+    bool   opened = 0;
 
-    if (fd < MAX_FILES) {
-        fp = &bypassd_info->bypassd_open_files[fd];
-        opened = fp->opened;
-    }
+    fp     = &bypassd_info->bypassd_open_files[fd];
+    opened = fp->opened;
 
     if (opened) {
+        // If all queues are empty, then we can skip bypassd_fdatasync()
         if (fp->data_modified) {
             bypassd_fdatasync();
             fp->data_modified = false;
@@ -267,17 +255,17 @@ int shim_do_fdatasync(int fd, int* result) {
 
 int shim_do_fsync(int fd, int* result) {
     struct bypassd_file *fp;
-    bool opened = 0;
+    bool   opened = 0;
 
-    if (fd < MAX_FILES) {
-        fp = &bypassd_info->bypassd_open_files[fd];
-        opened = fp->opened;
-    }
+    fp    = &bypassd_info->bypassd_open_files[fd];
+    opened = fp->opened;
 
     if (opened) {
         if (fp->metadata_modified) {
             *result = syscall_no_intercept(SYS_fsync, fd);
-            if (*result == 0) fp->metadata_modified = false;
+            if (*result == 0) {
+                fp->metadata_modified = false;
+            }
         } else {
             *result = 0;
         }

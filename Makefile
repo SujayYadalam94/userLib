@@ -23,5 +23,5 @@ tests:
 clean:
 	$(RM) *.o
 	$(RM) *.so
-	$(RM) libshim.log
+	$(RM) userlib.log
 	make -C tests/ clean

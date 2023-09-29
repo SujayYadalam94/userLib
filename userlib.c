@@ -584,7 +584,7 @@ int bypassd_init() {
     // TODO: which signals to capture?
     signal(SIGUSR1, sig_handler); // for filebench
 
-    logFile = fopen("libshim.log", "w+");
+    logFile = fopen("userlib.log", "w+");
 
     bypassd_info = (struct bypassd_info*)malloc(sizeof(struct bypassd_info));
 
