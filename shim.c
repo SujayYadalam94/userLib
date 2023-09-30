@@ -78,10 +78,10 @@ int shim_do_openat(int dfd, char* filename, int flags, mode_t mode, int* result)
 }
 
 int shim_do_close(int fd, int* result) {
-    struct bypassd_file *fp;
+    struct userlib_file *fp;
     bool   opened;
 
-    fp     = &bypassd_info->bypassd_open_files[fd];
+    fp     = &userlib_info->userlib_open_files[fd];
     opened = fp->opened;
 
     if (opened) {
@@ -94,12 +94,12 @@ int shim_do_close(int fd, int* result) {
 }
 
 int shim_do_read(int fd, void* buf, size_t count, size_t* result) {
-    struct bypassd_file *fp;
+    struct userlib_file *fp;
     off_t  offset;
     bool   opened;
     int    ret;
 
-    fp     = &bypassd_info->bypassd_open_files[fd];
+    fp     = &userlib_info->userlib_open_files[fd];
     opened = fp->opened;
 
     if (opened) {
@@ -120,12 +120,12 @@ int shim_do_read(int fd, void* buf, size_t count, size_t* result) {
 }
 
 int shim_do_pread64(int fd, void* buf, size_t count, loff_t offset, size_t* result) {
-    struct bypassd_file *fp;
+    struct userlib_file *fp;
     bool   opened;
     int    ret;
 
     userlib_log("[%s]: fd=%d size=%ld, offset=%ld\n", __func__, fd, count, offset);
-    fp     = &bypassd_info->bypassd_open_files[fd];
+    fp     = &userlib_info->userlib_open_files[fd];
     opened = fp->opened;
 
     if (opened) {
@@ -141,12 +141,12 @@ int shim_do_pread64(int fd, void* buf, size_t count, loff_t offset, size_t* resu
 }
 
 int shim_do_write(int fd, void* buf, size_t count, size_t* result) {
-    struct bypassd_file *fp;
+    struct userlib_file *fp;
     off_t  offset;
     bool   opened;
     int    ret;
 
-    fp     = &bypassd_info->bypassd_open_files[fd];
+    fp     = &userlib_info->userlib_open_files[fd];
     opened = fp->opened;
 
     if (opened) {
@@ -164,11 +164,11 @@ int shim_do_write(int fd, void* buf, size_t count, size_t* result) {
 }
 
 int shim_do_pwrite64(int fd, void* buf, size_t count, loff_t offset, size_t* result) {
-    struct bypassd_file *fp;
+    struct userlib_file *fp;
     bool   opened;
     int    ret;
 
-    fp     = &bypassd_info->bypassd_open_files[fd];
+    fp     = &userlib_info->userlib_open_files[fd];
     opened = fp->opened;
 
     if (opened) {
@@ -185,10 +185,10 @@ int shim_do_pwrite64(int fd, void* buf, size_t count, loff_t offset, size_t* res
 }
 
 int shim_do_lseek(int fd, off_t offset, int whence, off_t* result) {
-    struct bypassd_file *fp;
+    struct userlib_file *fp;
     bool   opened;
 
-    fp     = &bypassd_info->bypassd_open_files[fd];
+    fp     = &userlib_info->userlib_open_files[fd];
     opened = fp->opened;
 
     if (opened) {
@@ -201,10 +201,10 @@ int shim_do_lseek(int fd, off_t offset, int whence, off_t* result) {
 }
 
 int shim_do_fallocate(int fd, int mode, off_t offset, off_t len, int* result) {
-    struct bypassd_file *fp;
+    struct userlib_file *fp;
     bool   opened = 0;
 
-    fp     = &bypassd_info->bypassd_open_files[fd];
+    fp     = &userlib_info->userlib_open_files[fd];
     opened = fp->opened;
 
     if (opened) {
@@ -217,10 +217,10 @@ int shim_do_fallocate(int fd, int mode, off_t offset, off_t len, int* result) {
 }
 
 int shim_do_ftruncate(int fd, off_t length, int* result) {
-    struct bypassd_file *fp;
+    struct userlib_file *fp;
     bool   opened = 0;
 
-    fp     = &bypassd_info->bypassd_open_files[fd];
+    fp     = &userlib_info->userlib_open_files[fd];
     opened = fp->opened;
 
     if (opened) {
@@ -233,10 +233,10 @@ int shim_do_ftruncate(int fd, off_t length, int* result) {
 }
 
 int shim_do_fdatasync(int fd, int* result) {
-    struct bypassd_file *fp;
+    struct userlib_file *fp;
     bool   opened = 0;
 
-    fp     = &bypassd_info->bypassd_open_files[fd];
+    fp     = &userlib_info->userlib_open_files[fd];
     opened = fp->opened;
 
     if (opened) {
@@ -254,10 +254,10 @@ int shim_do_fdatasync(int fd, int* result) {
 }
 
 int shim_do_fsync(int fd, int* result) {
-    struct bypassd_file *fp;
+    struct userlib_file *fp;
     bool   opened = 0;
 
-    fp    = &bypassd_info->bypassd_open_files[fd];
+    fp    = &userlib_info->userlib_open_files[fd];
     opened = fp->opened;
 
     if (opened) {
@@ -323,7 +323,7 @@ static int syscall_hook(long syscall_number, long arg0, long arg1,
 static __attribute__((constructor)) void initialize(void) {
     int ret;
 
-    ret = bypassd_init();
+    ret = userlib_init();
     if (ret != 0) {
         fprintf(stderr, "Error initializating library\n");
         return;
@@ -337,6 +337,6 @@ static __attribute__((destructor)) void finalize(void) {
 
     userlib_log("Exiting library\n");
 
-    bypassd_exit();
+    userlib_exit();
     fclose(logFile);
 }

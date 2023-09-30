@@ -6,19 +6,19 @@ extern FILE *logFile;
 
 /*****************************************************************************/
 
-int bypassd_setup_bounce_buffers(size_t mem_pool_size) {
-    struct bypassd_ioctl_buf_info buf_info;
-    struct bypassd_user_buf       *ubuf;
+int userlib_setup_bounce_buffers(size_t mem_pool_size) {
+    struct userlib_ioctl_buf_info buf_info;
+    struct userlib_user_buf       *ubuf;
     int                           ret;
     unsigned int                  i = 0;
 
     mem_pool_size = LARGE_PAGE_ALIGN(mem_pool_size);
 
     buf_info.vaddr         = mmap(NULL, mem_pool_size, PROT_READ | PROT_WRITE, \
-                MAP_PRIVATE | MAP_ANONYMOUS, -1 , 0);
+                                MAP_PRIVATE | MAP_ANONYMOUS, -1 , 0);
     buf_info.nr_pages      = mem_pool_size/PAGE_SIZE;
     buf_info.dma_addr_list = malloc(sizeof(__u64) * buf_info.nr_pages);
-    ret = ioctl(bypassd_info->i_fd, IOCTL_GET_USER_BUF, &buf_info);
+    ret = ioctl(userlib_info->i_fd, IOCTL_GET_USER_BUF, &buf_info);
     if (ret != 0) {
         userlib_log("[%s]: Error allocating buffer\n", __func__);
         return 0;
@@ -34,7 +34,7 @@ int bypassd_setup_bounce_buffers(size_t mem_pool_size) {
         memcpy(ubuf->dma_addr_list, buf_info.dma_addr_list + i * ubuf->nr_pages,
                     sizeof(__u64) * ubuf->nr_pages);
         ubuf->user = 0;
-        LIST_INSERT_HEAD(&bypassd_info->bypassd_buf_list, ubuf, buf_list);
+        LIST_INSERT_HEAD(&userlib_info->userlib_buf_list, ubuf, buf_list);
 
         i++;
     }
@@ -46,9 +46,9 @@ int bypassd_setup_bounce_buffers(size_t mem_pool_size) {
     return mem_pool_size;
 }
 
-int bypassd_setup_prp_buffers(unsigned int num) {
-    struct bypassd_ioctl_buf_info buf_info;
-    struct bypassd_user_buf       *prp_buf;
+int userlib_setup_prp_buffers(unsigned int num) {
+    struct userlib_ioctl_buf_info buf_info;
+    struct userlib_user_buf       *prp_buf;
     unsigned int                  i;
     int                           ret;
 
@@ -58,7 +58,7 @@ int bypassd_setup_prp_buffers(unsigned int num) {
         buf_info.vaddr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         buf_info.nr_pages = 1;
-        ret = ioctl(bypassd_info->i_fd, IOCTL_GET_USER_BUF, &buf_info);
+        ret = ioctl(userlib_info->i_fd, IOCTL_GET_USER_BUF, &buf_info);
         if (ret != 0) {
             userlib_log("[%s]: Error allocating buffer\n", __func__);
             break;
@@ -70,7 +70,7 @@ int bypassd_setup_prp_buffers(unsigned int num) {
         prp_buf->dma_addr_list = malloc(sizeof(__u64));
         memcpy(prp_buf->dma_addr_list, buf_info.dma_addr_list, sizeof(__u64));
 
-        LIST_INSERT_HEAD(&bypassd_info->bypassd_prp_free_list, prp_buf, prp_list);
+        LIST_INSERT_HEAD(&userlib_info->userlib_prp_free_list, prp_buf, prp_list);
     }
 
     free(buf_info.dma_addr_list);
@@ -78,8 +78,8 @@ int bypassd_setup_prp_buffers(unsigned int num) {
 }
 
 // TODO: Can we make this faster?
-void *bypassd_get_bounce_buf(size_t buf_size) {
-    struct bypassd_user_buf *ubuf;
+struct userlib_user_buf *userlib_get_bounce_buf(size_t buf_size) {
+    struct userlib_user_buf *ubuf;
 
     // TODO: implement merging buffers for larger sizes
     if (buf_size > BBUF_SIZE) {
@@ -87,22 +87,22 @@ void *bypassd_get_bounce_buf(size_t buf_size) {
         return NULL;
     }
 
-    userlib_spinlock_lock(&bypassd_info->buf_lock);
-    ubuf = LIST_FIRST(&bypassd_info->bypassd_buf_list);
+    userlib_spinlock_lock(&userlib_info->buf_lock);
+    ubuf = LIST_FIRST(&userlib_info->userlib_buf_list);
     if (!ubuf) {
         userlib_log("[%s]: No free buffers\n", __func__);
-        userlib_spinlock_unlock(&bypassd_info->buf_lock);
+        userlib_spinlock_unlock(&userlib_info->buf_lock);
         return NULL;
     }
     LIST_REMOVE(ubuf, buf_list);
-    userlib_spinlock_unlock(&bypassd_info->buf_lock);
+    userlib_spinlock_unlock(&userlib_info->buf_lock);
 
     return ubuf;
 }
 
-void bypassd_get_buffer(struct bypassd_req *req, char* user_buf, size_t io_size, size_t len, bool force) {
-    struct bypassd_user_buf       *ubuf;
-    struct bypassd_ioctl_buf_info ubuf_info;
+void userlib_get_buffer(struct userlib_io_req *req, char* user_buf, size_t io_size, size_t len, bool force) {
+    struct userlib_user_buf       *ubuf;
+    struct userlib_ioctl_buf_info ubuf_info;
 
     // If user requested IO is unaligned, we need to use bounce buffer.
     // Else read DMA would overwrite user buf beyond len.
@@ -123,20 +123,20 @@ void bypassd_get_buffer(struct bypassd_req *req, char* user_buf, size_t io_size,
         ubuf_info.nr_pages      = nr_pages;
         ubuf_info.dma_addr_list = malloc(sizeof(__u64) * nr_pages);
 
-        int ret = ioctl(bypassd_info->i_fd, IOCTL_GET_BUF_ADDR, &ubuf_info);
+        int ret = ioctl(userlib_info->i_fd, IOCTL_GET_BUF_ADDR, &ubuf_info);
         if (ret != 0) {
             userlib_log("[%s]: Get buf addr ioctl failed\n", __func__);
 
             ubuf_info.vaddr    = user_buf;
             ubuf_info.nr_pages = nr_pages;
-            ret = ioctl(bypassd_info->i_fd, IOCTL_GET_USER_BUF, &ubuf_info);
+            ret = ioctl(userlib_info->i_fd, IOCTL_GET_USER_BUF, &ubuf_info);
             if (ret != 0) {
                 userlib_log("[%s]: Get user buf ioctl also failed\n", __func__);
                 free(ubuf_info.dma_addr_list);
             }
         }
 
-        ubuf = malloc(sizeof(struct bypassd_user_buf));
+        ubuf = malloc(sizeof(struct userlib_user_buf));
         ubuf->vaddr             = user_buf;
         ubuf->nr_pages          = ubuf_info.nr_pages;
         ubuf->dma_addr_list     = ubuf_info.dma_addr_list;
@@ -148,13 +148,13 @@ void bypassd_get_buffer(struct bypassd_req *req, char* user_buf, size_t io_size,
 
 get_bounce_buf:
     if (!req->buf) {
-        req->buf = bypassd_get_bounce_buf(PAGE_ALIGN(io_size));
+        req->buf = userlib_get_bounce_buf(PAGE_ALIGN(io_size));
     }
 }
 
-void bypassd_put_buffer(struct bypassd_req *req)
+void userlib_put_buffer(struct userlib_io_req *req)
 {
-    struct bypassd_user_buf *buf = req->buf;
+    struct userlib_user_buf *buf = req->buf;
 
     if (!req) {
         userlib_log("[%s]: Invalid argument\n", __func__);
@@ -165,24 +165,24 @@ void bypassd_put_buffer(struct bypassd_req *req)
         free(req->buf->dma_addr_list);
         free(req->buf);
     } else {
-        userlib_spinlock_lock(&bypassd_info->buf_lock);
-        LIST_INSERT_HEAD(&bypassd_info->bypassd_buf_list, req->buf, buf_list);
-        userlib_spinlock_unlock(&bypassd_info->buf_lock);
+        userlib_spinlock_lock(&userlib_info->buf_lock);
+        LIST_INSERT_HEAD(&userlib_info->userlib_buf_list, req->buf, buf_list);
+        userlib_spinlock_unlock(&userlib_info->buf_lock);
     }
 }
 
-void bypassd_release_bounce_buffers(void) {
-    struct bypassd_user_buf       *ubuf, *next;
-    struct bypassd_ioctl_buf_info buf_info;
+void userlib_release_bounce_buffers(void) {
+    struct userlib_user_buf       *ubuf, *next;
+    struct userlib_ioctl_buf_info buf_info;
 
-    ubuf = LIST_FIRST(&bypassd_info->bypassd_buf_list);
+    ubuf = LIST_FIRST(&userlib_info->userlib_buf_list);
     while (ubuf != NULL) {
         next = LIST_NEXT(ubuf, buf_list);
 
         buf_info.vaddr         = ubuf->vaddr;
         buf_info.nr_pages      = ubuf->nr_pages;
         buf_info.dma_addr_list = ubuf->dma_addr_list;
-        ioctl(bypassd_info->i_fd, IOCTL_PUT_USER_BUF, &buf_info);
+        ioctl(userlib_info->i_fd, IOCTL_PUT_USER_BUF, &buf_info);
 
         munmap(ubuf->vaddr, (ubuf->nr_pages*PAGE_SIZE)); //TODO: mmap size could be different
         free(ubuf->dma_addr_list);
@@ -195,13 +195,13 @@ void bypassd_release_bounce_buffers(void) {
     return;
 }
 
-void bypassd_release_prp_buffers(void) {
-    struct bypassd_user_buf       *prp_buf, *next;
-    struct bypassd_ioctl_buf_info buf_info;
+void userlib_release_prp_buffers(void) {
+    struct userlib_user_buf       *prp_buf, *next;
+    struct userlib_ioctl_buf_info buf_info;
 
     buf_info.dma_addr_list = malloc(sizeof(__u64));
 
-    prp_buf = LIST_FIRST(&bypassd_info->bypassd_prp_free_list);
+    prp_buf = LIST_FIRST(&userlib_info->userlib_prp_free_list);
     while (prp_buf != NULL) {
         next = LIST_NEXT(prp_buf, prp_list);
 
@@ -209,7 +209,7 @@ void bypassd_release_prp_buffers(void) {
         buf_info.nr_pages = prp_buf->nr_pages;
         memcpy(buf_info.dma_addr_list, prp_buf->dma_addr_list,
                     sizeof(__u64));
-        ioctl(bypassd_info->i_fd, IOCTL_PUT_USER_BUF, &buf_info);
+        ioctl(userlib_info->i_fd, IOCTL_PUT_USER_BUF, &buf_info);
 
         munmap(prp_buf->vaddr, PAGE_SIZE);
         free(prp_buf->dma_addr_list);

@@ -13,9 +13,9 @@ double avg = 0;
 int    scount = 0;
 
 // Allocate and initialize nvme request
-struct bypassd_req *nvme_init_request(struct bypassd_queue *queue) {
-    __u16              cmd_id;
-    struct bypassd_req *req;
+struct userlib_io_req *nvme_init_request(struct userlib_queue *queue) {
+    __u16                 cmd_id;
+    struct userlib_io_req *req;
 
     cmd_id = __atomic_fetch_add(&queue->cmd_id, 1, __ATOMIC_SEQ_CST);
     cmd_id = cmd_id % queue->q_depth;
@@ -30,7 +30,7 @@ struct bypassd_req *nvme_init_request(struct bypassd_queue *queue) {
     return req;
 }
 
-inline void nvme_setup_rw_cmd(struct bypassd_req *req, struct bypassd_file *fp,
+inline void nvme_setup_rw_cmd(struct userlib_io_req *req, struct userlib_file *fp,
             uint8_t opcode, unsigned long slba, size_t len) {
     struct nvme_rw_command *cmd = req->cmd;
 
@@ -47,8 +47,8 @@ inline void nvme_setup_rw_cmd(struct bypassd_req *req, struct bypassd_file *fp,
     return;
 }
 
-void nvme_setup_prp(struct bypassd_req *req, unsigned int nr_pages) {
-    struct bypassd_user_buf *prp_buf;
+void nvme_setup_prp(struct userlib_io_req *req, unsigned int nr_pages) {
+    struct userlib_user_buf *prp_buf;
     __u64                   *pa_list;
     __u64                   *prp_vaddr;
     unsigned int            i;
@@ -61,13 +61,13 @@ void nvme_setup_prp(struct bypassd_req *req, unsigned int nr_pages) {
     } else if (nr_pages == 2) {
         req->prp2 = pa_list[1];
     } else if (nr_pages > 2) {
-        userlib_spinlock_lock(&bypassd_info->prp_lock);
-        prp_buf = LIST_FIRST(&bypassd_info->bypassd_prp_free_list);
+        userlib_spinlock_lock(&userlib_info->prp_lock);
+        prp_buf = LIST_FIRST(&userlib_info->userlib_prp_free_list);
         if (!prp_buf) {
             assert(0);
         }
         LIST_REMOVE(prp_buf, prp_list);
-        userlib_spinlock_unlock(&bypassd_info->prp_lock);
+        userlib_spinlock_unlock(&userlib_info->prp_lock);
 
         req->prp_buf = prp_buf;
 
@@ -79,7 +79,7 @@ void nvme_setup_prp(struct bypassd_req *req, unsigned int nr_pages) {
     }
 }
 
-void nvme_submit_cmd(struct bypassd_queue *queue, struct nvme_rw_command *cmd) {
+void nvme_submit_cmd(struct userlib_queue *queue, struct nvme_rw_command *cmd) {
     userlib_spinlock_lock(&queue->sq_lock);
     memcpy(&queue->sq_cmds[queue->sq_tail], cmd, sizeof(*cmd));
     if (++queue->sq_tail == queue->q_depth)
@@ -92,29 +92,29 @@ void nvme_submit_cmd(struct bypassd_queue *queue, struct nvme_rw_command *cmd) {
     }
 }
 
-void complete_io(struct bypassd_req *req) {
+void complete_io(struct userlib_io_req *req) {
     if (req->prp_buf) {
         memset(req->prp_buf->vaddr, 0, PAGE_SIZE);
-        userlib_spinlock_lock(&bypassd_info->prp_lock);
-        LIST_INSERT_HEAD(&bypassd_info->bypassd_prp_free_list, req->prp_buf, prp_list);
-        userlib_spinlock_unlock(&bypassd_info->prp_lock); 
+        userlib_spinlock_lock(&userlib_info->prp_lock);
+        LIST_INSERT_HEAD(&userlib_info->userlib_prp_free_list, req->prp_buf, prp_list);
+        userlib_spinlock_unlock(&userlib_info->prp_lock); 
     }
 
     // Free buffer only for writes
-    // For reads, free after memcpy(). This is done in bypassd_read().
+    // For reads, free after memcpy(). This is done in userlib_read().
     if (req->cmd->opcode == nvme_cmd_write) {
-        bypassd_put_buffer(req);
+        userlib_put_buffer(req);
     }
 
     req->status = IO_COMPLETE;
     free(req->cmd);
 }
 
-static inline bool nvme_cqe_pending(struct bypassd_queue *queue) {
+static inline bool nvme_cqe_pending(struct userlib_queue *queue) {
     return (queue->cqes[queue->cq_head].status & 1) == queue->cq_phase;
 }
 
-static inline void nvme_update_cq_head(struct bypassd_queue *queue) {
+static inline void nvme_update_cq_head(struct userlib_queue *queue) {
         queue->cq_head++;
         if (queue->cq_head == queue->q_depth) {
             queue->cq_head = 0;
@@ -124,8 +124,8 @@ static inline void nvme_update_cq_head(struct bypassd_queue *queue) {
 
 // Returns when command with cmd_id is complete
 // If finds other entries, processes completions for other requests
-void nvme_poll(struct bypassd_queue *queue, __u16 cmd_id) {
-    volatile struct bypassd_req           *req;
+void nvme_poll(struct userlib_queue *queue, __u16 cmd_id) {
+    volatile struct userlib_io_req           *req;
     volatile struct nvme_completion_entry *cqe;
     __u16 start = 0, end = 0;
 
@@ -166,7 +166,7 @@ void nvme_poll(struct bypassd_queue *queue, __u16 cmd_id) {
     return;
 }
 
-void nvme_process_completions(struct bypassd_queue *queue) {
+void nvme_process_completions(struct userlib_queue *queue) {
     volatile struct nvme_completion_entry *cqe;
     __u16 start = 0, end = 0;
 
