@@ -6,10 +6,10 @@ LDFLAGS = -L$(SYSCALL_INTERCEPT_DIR)/lib -Wl,-rpath=$(SYSCALL_INTERCEPT_DIR)/lib
 
 .PHONY: debug release tests
 
-release: tests shim
+release: shim tests
 
 debug: CFLAGS += -g -DDEBUG
-debug: tests shim
+debug: shim tests
 
 shim: shim.o userlib.o mem.o nvme.o pa_maps.o
 	gcc $(CFLAGS) $(INCLUDE) $^ $(LDFLAGS) -shared -o libshim.so
