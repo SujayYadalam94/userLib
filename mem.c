@@ -87,15 +87,15 @@ void *bypassd_get_bounce_buf(size_t buf_size) {
         return NULL;
     }
 
-    bypassd_spinlock_lock(&bypassd_info->buf_lock);
+    userlib_spinlock_lock(&bypassd_info->buf_lock);
     ubuf = LIST_FIRST(&bypassd_info->bypassd_buf_list);
     if (!ubuf) {
         userlib_log("[bypassd_get_bounce_buf]: No free buffers\n");
-        bypassd_spinlock_unlock(&bypassd_info->buf_lock);
+        userlib_spinlock_unlock(&bypassd_info->buf_lock);
         return NULL;
     }
     LIST_REMOVE(ubuf, buf_list);
-    bypassd_spinlock_unlock(&bypassd_info->buf_lock);
+    userlib_spinlock_unlock(&bypassd_info->buf_lock);
 
     return ubuf;
 }
@@ -165,9 +165,9 @@ void bypassd_put_buffer(struct bypassd_req *req)
         free(req->buf->dma_addr_list);
         free(req->buf);
     } else {
-        bypassd_spinlock_lock(&bypassd_info->buf_lock);
+        userlib_spinlock_lock(&bypassd_info->buf_lock);
         LIST_INSERT_HEAD(&bypassd_info->bypassd_buf_list, req->buf, buf_list);
-        bypassd_spinlock_unlock(&bypassd_info->buf_lock);
+        userlib_spinlock_unlock(&bypassd_info->buf_lock);
     }
 }
 

@@ -101,8 +101,8 @@ struct bypassd_queue {
     __u16 sq_tail, cq_head;
     __u8  cq_phase;
 
-    bypassd_spinlock_t sq_lock;
-    bypassd_spinlock_t cq_lock;
+    userlib_spinlock_t sq_lock;
+    userlib_spinlock_t cq_lock;
 
     struct bypassd_req* rqs;
     __u16               cmd_id;
@@ -166,8 +166,8 @@ struct bypassd_info {
     LIST_HEAD(buf_list, bypassd_user_buf) bypassd_buf_list;
     LIST_HEAD(prp_list, bypassd_user_buf) bypassd_prp_free_list;
 
-    bypassd_spinlock_t prp_lock;
-    bypassd_spinlock_t buf_lock;
+    userlib_spinlock_t prp_lock;
+    userlib_spinlock_t buf_lock;
 };
 
 struct bypassd_info *bypassd_info;

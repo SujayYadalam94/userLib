@@ -65,8 +65,8 @@ int bypassd_create_queues(int num_queues) {
         queue->sq_tail  = 0;
         queue->cq_head  = 0;
         queue->cq_phase = 1;
-        bypassd_spinlock_init(&queue->sq_lock);
-        bypassd_spinlock_init(&queue->cq_lock);
+        userlib_spinlock_init(&queue->sq_lock);
+        userlib_spinlock_init(&queue->cq_lock);
         queue->rqs      = calloc(queue->q_depth, sizeof(struct bypassd_req));
         queue->cmd_id   = 0;
         queue->pending_io_writes = 0;
@@ -592,8 +592,8 @@ int bypassd_init() {
         return -1;
     }
 
-    bypassd_spinlock_init(&bypassd_info->prp_lock);
-    bypassd_spinlock_init(&bypassd_info->buf_lock);
+    userlib_spinlock_init(&bypassd_info->prp_lock);
+    userlib_spinlock_init(&bypassd_info->buf_lock);
     LIST_INIT(&bypassd_info->bypassd_buf_list);
     LIST_INIT(&bypassd_info->bypassd_prp_free_list);
 

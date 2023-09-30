@@ -12,14 +12,14 @@
 
 #include "userlib.h"
 
-#define PATH_SIZE 4096 // Max length of the full file path
+#define MAX_PATH_LEN 4096 // Max length of the full file path
 
 // We use the below prefix to filter I/O accesses going to the NVMe device
 // Change the path to the directory that the device is mounted on
 const char DEVICE_DIR[20] = "/mnt/nvme";
 
 int shim_do_open(char* filename, int flags, mode_t mode, int* result) {
-    char fullpath[PATH_SIZE];
+    char fullpath[MAX_PATH_LEN];
     int  ret = 0;
 
     memset(fullpath, 0, sizeof(fullpath));
@@ -46,7 +46,7 @@ int shim_do_open(char* filename, int flags, mode_t mode, int* result) {
 }
 
 int shim_do_openat(int dfd, char* filename, int flags, mode_t mode, int* result) {
-    char fullpath[PATH_SIZE];
+    char fullpath[MAX_PATH_LEN];
     int  ret = 0;
 
     memset(fullpath, 0, sizeof(fullpath));
