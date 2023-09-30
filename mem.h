@@ -3,8 +3,8 @@
 
 #include <stdbool.h>
 
-int bypassd_setup_bounce_buffers(size_t size);
-int bypassd_setup_prp_buffers(unsigned int num);
+int  bypassd_setup_bounce_buffers(size_t size);
+int  bypassd_setup_prp_buffers(unsigned int num);
 void bypassd_release_bounce_buffers(void);
 void bypassd_release_prp_buffers(void); 
 

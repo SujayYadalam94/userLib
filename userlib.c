@@ -35,6 +35,7 @@ void userlib_log(const char *fmt, ...) {
 }
 #endif
 
+// Thread ID is used to hash to a queue assigned to the process
 long bypassd_gettid() {
     if (!_tid) {
         _tid = syscall_no_intercept(SYS_gettid);
@@ -108,7 +109,7 @@ int bypassd_open(char* filename, int flags, mode_t mode, int* result) {
 
     ret = syscall_no_intercept(SYS_stat, filename, &f_stat);
     if (ret == -ENOENT && (flags & O_CREAT)) {
-        userlib_log("[bypassd_open]: File doesn't exist but creating\n");
+        userlib_log("[%s]: File doesn't exist but creating\n", __func__);
         f_stat.st_size = 0;
         goto special_open;
     } else if (ret != 0) {
@@ -122,6 +123,7 @@ int bypassd_open(char* filename, int flags, mode_t mode, int* result) {
 
 special_open:
     //fd = syscall_no_intercept(SYS_open, filename, flags, mode);
+    // Syscall 337 is BypassD's fmap() syscall
     fd = syscall(337, -1, filename, flags, mode, &addr, &addr_fast);
     *result = fd;
     if (fd < 0) {
@@ -132,17 +134,17 @@ special_open:
     fp = &bypassd_info->bypassd_open_files[fd];
 
     strcpy(fp->filename, filename);
-    fp->size = f_stat.st_size;
-    fp->old_fva = addr;
-    fp->fva = addr_fast;
+    fp->size    = f_stat.st_size;
+    fp->old_fva = addr; // Old fva is unused since its slower
+    fp->fva     = addr_fast;
 
-    fp->fd = fd;
+    fp->fd     = fd;
     fp->offset = 0;
-    fp->flags = flags;
-    fp->mode = mode;
+    fp->flags  = flags;
+    fp->mode   = mode;
     fp->append_offset = f_stat.st_size;
 
-    fp->data_modified = false;
+    fp->data_modified     = false;
     fp->metadata_modified = (flags & O_CREAT)?true:false;
 
     if (bypassd_info->nr_queues == 0) {
@@ -155,14 +157,14 @@ special_open:
         }
     }
     // Per file queue with hashing to handle limited number of queues
-    fp->queue = bypassd_info->bypassd_queue_list[fd % bypassd_info->nr_queues];
+    fp->queue   = bypassd_info->bypassd_queue_list[fd % bypassd_info->nr_queues];
     fp->ns_info = &bypassd_info->ns_info;
 
     fp->opened = 1; // File is now open to access by shim library
 
-    bypassd_info->nr_open_files++; // TODO: No use for now
+    bypassd_info->nr_open_files++; // This is unused for now
 
-    userlib_log("[bypassd_open]: tid=%ld filename:%s fd:%d fva:0x%lx\n", bypassd_gettid(), filename, fd, fp->fva);
+    userlib_log("[%s]: tid=%ld filename:%s fd:%d fva:0x%lx\n", __func__, bypassd_gettid(), filename, fd, fp->fva);
 
     return 0;
 }
@@ -171,23 +173,27 @@ int bypassd_close(int fd, int *result) {
     struct bypassd_file *fp;
 
     fp = &bypassd_info->bypassd_open_files[fd];
+    // Syscall 338 unmaps the file from the user address space
     syscall_no_intercept(338, fd, fp->old_fva, fp->fva);
 
-    // TODO: should we clear struct bypassd_file??
     fp->opened = 0;
 
     *result = 0;
 
-    userlib_log("[bypassd_close]: tid=%ld fd=%d\n", bypassd_gettid(), fp->fd);
+    userlib_log("[%s]: tid=%ld fd=%d\n", __func__, bypassd_gettid(), fp->fd);
 
     return 0;
 }
 
+// This function emulates the LBA translation that is performed by the IOMMU hardware.
+// The overhead of the translation is modeled as one of the following:
+// 1) We do a software walk of the page tables (~1us) which is higher than actual cost (~550ns).
+// 2) We use a NOP for loop. This needs to be tuned as per the CPU and its frequncy.
 int bypassd_get_lba(struct bypassd_file *fp, size_t len, loff_t offset,
             unsigned long *lba, loff_t *io_size) {
     unsigned long slba;
     unsigned long prev_lba, next_lba;
-    loff_t size;
+    loff_t        size;
 
     slba = get_physical_frame_fast((void *)fp->fva, offset/PAGE_SIZE);
     if (slba == 0) {
@@ -220,24 +226,25 @@ int bypassd_get_lba(struct bypassd_file *fp, size_t len, loff_t offset,
     *io_size = size;
 
     // IMPORTANT: No need of delay if not using BBUF.
-    //            The address translation for buffers takes ~1us.
-    // Delay emulating ATS latency (PCIe+IOTLB miss)
+    //            The address translation for buffers takes ~1us
+    //            which is longer than the LBA translation overhead.
+    // Delay emulating LBA translation latency (PCIe+IOTLB miss)
     // Value should be set based on core frequency
     // For a 3GHz processor, 1800 cycles ~ 600ns
-    for (int x=0; x < 0; x++) {
-        asm volatile ("nop;" : : : "memory");
-    }
+    //for (int x=0; x < 1800; x++) {
+    //    asm volatile ("nop;" : : : "memory");
+    //}
     return 0;
 }
 
 int bypassd_read(struct bypassd_file *fp, char* buf, size_t len, loff_t offset, size_t* result) {
-    size_t file_size;
+    size_t        file_size;
     unsigned long slba;
-    size_t num_blks;
-    loff_t cnt, io_size = 0;
+    size_t        num_blks;
+    loff_t        cnt, io_size = 0;
 
     struct bypassd_queue *queue;
-    struct bypassd_req *req;
+    struct bypassd_req   *req;
 
     int ret;
 
@@ -271,7 +278,9 @@ int bypassd_read(struct bypassd_file *fp, char* buf, size_t len, loff_t offset, 
 
     cnt = len;
     while (cnt > 0) {
-
+        // Since we are emulating, we use the actual LBA in the NVMe request
+        // However, in the actual BypassD design, we would include the VBA
+        // which the IOMMU would translate to LBA
         ret = bypassd_get_lba(fp, cnt, offset, &slba, &io_size);
         if (ret == 1) {
             *result = -EINVAL;
@@ -290,7 +299,7 @@ int bypassd_read(struct bypassd_file *fp, char* buf, size_t len, loff_t offset, 
         nvme_setup_prp(req, PAGE_ALIGN(io_size)/PAGE_SIZE);
         nvme_setup_rw_cmd(req, fp, nvme_cmd_read, slba, num_blks*BLK_SIZE);
 
-        userlib_log("[bypassd_read]: tid=%lu lba:%llu offset:%llu len:%lu\n", bypassd_gettid(), \
+        userlib_log("[%s]: tid=%lu lba:%llu offset:%llu len:%lu\n", __func__, bypassd_gettid(), \
                     req->cmd->slba, offset, req->cmd->length);
 
         nvme_submit_cmd(queue, req->cmd);
@@ -301,9 +310,9 @@ int bypassd_read(struct bypassd_file *fp, char* buf, size_t len, loff_t offset, 
             memcpy(buf, req->buf->vaddr + (offset % BLK_SIZE), bytes_read);
         }
 
-        cnt -= bytes_read;
+        cnt    -= bytes_read;
         offset += bytes_read;
-        buf += bytes_read;
+        buf    += bytes_read;
 
         bypassd_put_buffer(req);
 
@@ -318,15 +327,16 @@ int bypassd_read(struct bypassd_file *fp, char* buf, size_t len, loff_t offset, 
     return 0;
 }
 
-// TODO: Currently do not support unaligned writes and writes smaller than 512B
+// TODO: Support for unaligned writes and writes smaller than 512B has not been fully integrated
+// Below code doesn't support. It will be added soon.
 int bypassd_write(struct bypassd_file *fp, char* buf, size_t len, loff_t offset, size_t* result) {
-    size_t file_size;
+    size_t              file_size;
     struct bypassd_req *req;
-    size_t buf_size;
-    bool is_append = false;
+    size_t              buf_size;
+    bool                is_append = false;
 
     unsigned long slba = 0;
-    loff_t cnt, io_size = 0;
+    loff_t        cnt, io_size = 0;
 
     struct bypassd_queue *queue;
 
@@ -350,7 +360,7 @@ int bypassd_write(struct bypassd_file *fp, char* buf, size_t len, loff_t offset,
         return 0;
     }
 
-    // Partial writes go through kernel
+    // TODO: Partial writes go through kernel
     if (offset % BLK_SIZE != 0 || len % BLK_SIZE != 0) {
         *result = syscall_no_intercept(SYS_pwrite64, fp->fd, buf, len, offset);
         syscall_no_intercept(SYS_fsync, fp->fd); // Need to persist immediately
@@ -535,7 +545,7 @@ void bypassd_exit() {
 
     if (__atomic_compare_exchange_n(&bypassd_initialized, &initialized, 0, false,
                 __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {
-        userlib_log("[bypassd_exit]: Already exited\n");
+        userlib_log("[%s]: Already exited\n", __func__);
         return;
     }
 
@@ -576,7 +586,7 @@ int bypassd_init() {
     // TODO: which signals to capture?
     signal(SIGUSR1, sig_handler); // for filebench
 
-    logFile = fopen("userlib.log", "w+");
+    logFile = fopen(LOGFILE_NAME, "w+");
 
     bypassd_info = (struct bypassd_info*)malloc(sizeof(struct bypassd_info));
 
@@ -588,7 +598,7 @@ int bypassd_init() {
 
     ret = ioctl(bypassd_info->i_fd, IOCTL_GET_NS_INFO, &bypassd_info->ns_info);
     if (ret != 0) {
-        userlib_log("[bypassd_init]: NS Info IOCTL failed\n");
+        userlib_log("[%s]: NS Info IOCTL failed\n", __func__);
         return -1;
     }
 
@@ -603,21 +613,21 @@ int bypassd_init() {
 
     bypassd_info->nr_queues = bypassd_create_queues(BYPASSD_NUM_QUEUES);
     if (bypassd_info->nr_queues == 0) {
-        userlib_log("[bypassd_init]: Failed to create user queues\n");
+        userlib_log("[%s]: Failed to create user queues\n", __func__);
         return -1;
     } else {
-        userlib_log("[bypassd_init]: Created %d queues\n", bypassd_info->nr_queues);
+        userlib_log("[%s]: Created %d queues\n", __func__, bypassd_info->nr_queues);
     }
 
     ret = bypassd_setup_bounce_buffers(BYPASSD_BUF_POOL_SIZE);
     if (ret == 0) {
-        userlib_log("[bypassd_init]: Failed to setup any buffers\n");
+        userlib_log("[%s]: Failed to setup any buffers\n", __func__);
         return -1;
     }
 
     ret = bypassd_setup_prp_buffers(BYPASSD_NUM_PRP_BUFFERS);
     if (ret == 0) {
-        userlib_log("[bypassd_init]: Failed to setup prp buffers\n");
+        userlib_log("[%s]: Failed to setup prp buffers\n", __func__);
         return -1;
     }
 

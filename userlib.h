@@ -35,6 +35,8 @@
 #define MAX_FILES               1024
 #define BYPASSD_NUM_QUEUES      16
 
+#define LOGFILE_NAME            "userlib.log"
+
 //---------------------------------------------------------------------------
 
 #define IOCTL_GET_NS_INFO       _IOR('N', 0x50, struct bypassd_ns_info)

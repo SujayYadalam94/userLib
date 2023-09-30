@@ -10,22 +10,22 @@
 extern FILE *logFile;
 
 double avg = 0;
-int scount = 0;
-__thread struct timespec stime,etime;
+int    scount = 0;
 
+// Allocate and initialize nvme request
 struct bypassd_req *nvme_init_request(struct bypassd_queue *queue) {
-    __u16 cmd_id;
+    __u16              cmd_id;
     struct bypassd_req *req;
 
     cmd_id = __atomic_fetch_add(&queue->cmd_id, 1, __ATOMIC_SEQ_CST);
     cmd_id = cmd_id % queue->q_depth;
 
-    req = &queue->rqs[cmd_id];
+    req          = &queue->rqs[cmd_id];
     req->prp_buf = NULL;
-    req->buf = NULL;
-    req->cmd = calloc(1, sizeof(struct nvme_rw_command));
-    req->cmd_id = cmd_id;
-    req->status = IO_INIT;
+    req->buf     = NULL;
+    req->cmd     = calloc(1, sizeof(struct nvme_rw_command));
+    req->cmd_id  = cmd_id;
+    req->status  = IO_INIT;
 
     return req;
 }
@@ -34,26 +34,26 @@ inline void nvme_setup_rw_cmd(struct bypassd_req *req, struct bypassd_file *fp,
             uint8_t opcode, unsigned long slba, size_t len) {
     struct nvme_rw_command *cmd = req->cmd;
 
-    cmd->opcode = opcode;
+    cmd->opcode     = opcode;
     cmd->command_id = req->cmd_id;
-    cmd->nsid = fp->ns_info->ns_id;
-    cmd->prp1 = req->prp1;
-    cmd->prp2 = req->prp2;
-    cmd->slba = fp->ns_info->lba_start + slba;
-    cmd->length = (BLK_ALIGN(len) >> fp->ns_info->lba_shift) - 1;
-    cmd->control = 0;
-    cmd->dsmgmt = 0;
+    cmd->nsid       = fp->ns_info->ns_id;
+    cmd->prp1       = req->prp1;
+    cmd->prp2       = req->prp2;
+    cmd->slba       = fp->ns_info->lba_start + slba;
+    cmd->length     = (BLK_ALIGN(len) >> fp->ns_info->lba_shift) - 1;
+    cmd->control    = 0;
+    cmd->dsmgmt     = 0;
 
     return;
 }
 
 void nvme_setup_prp(struct bypassd_req *req, unsigned int nr_pages) {
     struct bypassd_user_buf *prp_buf;
-    __u64 *pa_list;
-    __u64 *prp_vaddr;
-    unsigned int i;
+    __u64                   *pa_list;
+    __u64                   *prp_vaddr;
+    unsigned int            i;
 
-    pa_list = req->buf->dma_addr_list;
+    pa_list   = req->buf->dma_addr_list;
     req->prp1 = pa_list[0];
 
     if (nr_pages == 1) {
@@ -80,9 +80,6 @@ void nvme_setup_prp(struct bypassd_req *req, unsigned int nr_pages) {
 }
 
 void nvme_submit_cmd(struct bypassd_queue *queue, struct nvme_rw_command *cmd) {
-#ifdef DEBUG
-    clock_gettime(CLOCK_REALTIME, &stime);
-#endif
     userlib_spinlock_lock(&queue->sq_lock);
     memcpy(&queue->sq_cmds[queue->sq_tail], cmd, sizeof(*cmd));
     if (++queue->sq_tail == queue->q_depth)
@@ -128,7 +125,7 @@ static inline void nvme_update_cq_head(struct bypassd_queue *queue) {
 // Returns when command with cmd_id is complete
 // If finds other entries, processes completions for other requests
 void nvme_poll(struct bypassd_queue *queue, __u16 cmd_id) {
-    volatile struct bypassd_req *req;
+    volatile struct bypassd_req           *req;
     volatile struct nvme_completion_entry *cqe;
     __u16 start = 0, end = 0;
 
@@ -166,11 +163,6 @@ void nvme_poll(struct bypassd_queue *queue, __u16 cmd_id) {
         }
     }
 
-#ifdef DEBUG
-    clock_gettime(CLOCK_REALTIME, &etime);
-    avg += (etime.tv_sec - stime.tv_sec) * 1e6 + (etime.tv_nsec - stime.tv_nsec) / 1e3;
-    scount++;
-#endif
     return;
 }
 

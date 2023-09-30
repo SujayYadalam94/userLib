@@ -74,7 +74,7 @@ void show_va_info(uint64_t va)
 {
 	FILE *f;
 	char line[LINELEN];
-	int n;
+	int  n;
 	uint64_t vm_start, vm_end;
 
 	f = fopen(MAPS_PATH, "r");
@@ -113,7 +113,7 @@ out:
  */
 uint64_t get_physical_frame(uint64_t va)
 {
-	int pmfd = 0;
+	int      pmfd = 0;
 	uint64_t vpn = 0, pagemap_entry = 0;
 
 	// Calculate the virtual page number and the offset for the given VA.
