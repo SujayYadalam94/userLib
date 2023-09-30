@@ -248,10 +248,6 @@ int bypassd_read(struct userlib_file *fp, char* buf, size_t len, loff_t offset, 
 
     int ret;
 
-#ifdef DEBUG
-    clock_gettime(CLOCK_REALTIME, &userlib_start);
-#endif
-
     file_size = atomic_load(&fp->size);
     // Invalid offsets
     if (offset < 0 || (size_t)offset > file_size) {
@@ -315,12 +311,6 @@ int bypassd_read(struct userlib_file *fp, char* buf, size_t len, loff_t offset, 
         buf    += bytes_read;
 
         userlib_put_buffer(req);
-
-#ifdef DEBUG
-        clock_gettime(CLOCK_REALTIME, &userlib_end);
-        userlib_avg += (userlib_end.tv_sec - userlib_start.tv_sec) * 1e6 + (userlib_end.tv_nsec - userlib_start.tv_nsec) / 1e3;
-        userlib_count++;
-#endif
     }
 
     *result = len;
@@ -548,10 +538,6 @@ void userlib_exit() {
         userlib_log("[%s]: Already exited\n", __func__);
         return;
     }
-
-    userlib_log("Avg dev latency=%f %f %d\n", avg/scount, avg, scount);
-    userlib_log("Avg software overhead=%f\n", userlib_avg/userlib_count);
-    userlib_log("Avg total latency=%f\n", total_avg/total_count);
 
     userlib_log("Deleting queues...\n");
     userlib_delete_queues();
