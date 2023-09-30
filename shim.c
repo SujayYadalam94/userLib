@@ -41,7 +41,7 @@ int shim_do_open(char* filename, int flags, mode_t mode, int* result) {
         *result = syscall_no_intercept(SYS_open, filename, flags, mode);
     }
 
-    bypassd_log("[%s]: filename=%s res=%d\n", __func__, filename, *result);
+    userlib_log("[%s]: filename=%s res=%d\n", __func__, filename, *result);
     return ret;
 }
 
@@ -61,7 +61,7 @@ int shim_do_openat(int dfd, char* filename, int flags, mode_t mode, int* result)
         strcat(fullpath, filename);
     } else {
         // TODO: Need to handle relative openat
-        bypassd_log("[%s]: Don't know how to handle relative openat\n", __func__);
+        userlib_log("[%s]: Don't know how to handle relative openat\n", __func__);
         *result = syscall_no_intercept(SYS_openat, dfd, filename, flags, mode);
         return 0;
     }
@@ -73,7 +73,7 @@ int shim_do_openat(int dfd, char* filename, int flags, mode_t mode, int* result)
         *result = syscall_no_intercept(SYS_openat, dfd, filename, flags, mode);
     }
 
-    bypassd_log("[%s]: dfd=%d filename=%s flags=0x%x\n", __func__, dfd, filename, flags);
+    userlib_log("[%s]: dfd=%d filename=%s flags=0x%x\n", __func__, dfd, filename, flags);
     return ret;
 }
 
@@ -108,14 +108,14 @@ int shim_do_read(int fd, void* buf, size_t count, size_t* result) {
         if (ret == 0) {
             atomic_fetch_add(&fp->offset, *result);
         } else {
-            bypassd_log("[%s]: failed\n", __func__);
+            userlib_log("[%s]: failed\n", __func__);
             *result = 0;
         }
     } else { // Not opened with BypassD interface
         *result = syscall_no_intercept(SYS_read, fd, buf, count);
     }
 
-    bypassd_log("[%s]: fd=%d size=%ld\n", __func__, fd, count);
+    userlib_log("[%s]: fd=%d size=%ld\n", __func__, fd, count);
     return 0;
 }
 
@@ -124,14 +124,14 @@ int shim_do_pread64(int fd, void* buf, size_t count, loff_t offset, size_t* resu
     bool   opened;
     int    ret;
 
-    bypassd_log("[%s]: fd=%d size=%ld, offset=%ld\n", __func__, fd, count, offset);
+    userlib_log("[%s]: fd=%d size=%ld, offset=%ld\n", __func__, fd, count, offset);
     fp     = &bypassd_info->bypassd_open_files[fd];
     opened = fp->opened;
 
     if (opened) {
         ret = bypassd_read(fp, buf, count, offset, result);
         if (ret != 0)  {
-            bypassd_log("[%s]: failed\n", __func__);
+            userlib_log("[%s]: failed\n", __func__);
         }
     } else { // Not opened with BypassD interface
         *result = syscall_no_intercept(SYS_pread64, fd, buf, count, offset);
@@ -151,7 +151,7 @@ int shim_do_write(int fd, void* buf, size_t count, size_t* result) {
 
     if (opened) {
         offset = atomic_load(&fp->offset);
-        bypassd_log("[%s]: fd=%d size=%ld\n", __func__, fd, count);
+        userlib_log("[%s]: fd=%d size=%ld\n", __func__, fd, count);
         ret = bypassd_write(fp, buf, count, offset, result);
         if (ret == 0) {
             atomic_fetch_add(&fp->offset, *result);
@@ -172,7 +172,7 @@ int shim_do_pwrite64(int fd, void* buf, size_t count, loff_t offset, size_t* res
     opened = fp->opened;
 
     if (opened) {
-        bypassd_log("[%s]: fd=%d size=%ld offset=%ld\n", __func__, fd, count, offset);
+        userlib_log("[%s]: fd=%d size=%ld offset=%ld\n", __func__, fd, count, offset);
         ret = bypassd_write(fp, buf, count, offset, result);
         if (ret != 0) {
             assert(0);
@@ -335,7 +335,7 @@ static __attribute__((constructor)) void initialize(void) {
 
 static __attribute__((destructor)) void finalize(void) {
 
-    bypassd_log("Exiting library\n");
+    userlib_log("Exiting library\n");
 
     bypassd_exit();
     fclose(logFile);

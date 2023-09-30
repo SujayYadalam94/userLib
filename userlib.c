@@ -17,18 +17,10 @@
 
 __thread long _tid = 0;
 
-extern double avg;
-extern int scount;
-extern double total_avg;
-extern int total_count;
-double bypassd_avg = 0;
-int bypassd_count = 0;
-__thread struct timespec bypassd_start,bypassd_end;
-
 int bypassd_initialized = 0;
 
 #ifdef DEBUG
-void bypassd_log(const char *fmt, ...) {
+void userlib_log(const char *fmt, ...) {
     char date[20];
     struct timeval tv;
     va_list args;
@@ -50,13 +42,13 @@ long bypassd_gettid() {
 
     return _tid;
 }
-// TODO: Implement user page caching
 
 /*****************************************************************************/
 
 int bypassd_create_queues(int num_queues) {
-    struct bypassd_queue *queue;
+    struct bypassd_queue            *queue;
     struct bypassd_ioctl_queue_info *iq;
+
     int i;
     int ret;
 
@@ -70,15 +62,15 @@ int bypassd_create_queues(int num_queues) {
             break;
         }
         memcpy(queue, iq, sizeof(*iq));
-        queue->sq_tail = 0;
-        queue->cq_head = 0;
+        queue->sq_tail  = 0;
+        queue->cq_head  = 0;
         queue->cq_phase = 1;
         bypassd_spinlock_init(&queue->sq_lock);
         bypassd_spinlock_init(&queue->cq_lock);
-        queue->rqs = calloc(queue->q_depth, sizeof(struct bypassd_req));
-        queue->cmd_id = 0;
+        queue->rqs      = calloc(queue->q_depth, sizeof(struct bypassd_req));
+        queue->cmd_id   = 0;
         queue->pending_io_writes = 0;
-        bypassd_log("[bypassd_create_queues]: %ld: Created queue id=%d\n", bypassd_gettid(), queue->qid);
+        userlib_log("[%s]: %ld: Created queue id=%d\n", __func__, bypassd_gettid(), queue->qid);
 
         bypassd_info->bypassd_queue_list[i] = queue;
     }
@@ -108,15 +100,15 @@ int bypassd_delete_queues() {
 /*****************************************************************************/
 
 int bypassd_open(char* filename, int flags, mode_t mode, int* result) {
-    int fd;
+    int           fd;
     struct bypassd_file *fp;
-    int ret;
-    struct stat f_stat;
+    int           ret;
+    struct stat   f_stat;
     unsigned long addr, addr_fast;
 
     ret = syscall_no_intercept(SYS_stat, filename, &f_stat);
     if (ret == -ENOENT && (flags & O_CREAT)) {
-        bypassd_log("[bypassd_open]: File doesn't exist but creating\n");
+        userlib_log("[bypassd_open]: File doesn't exist but creating\n");
         f_stat.st_size = 0;
         goto special_open;
     } else if (ret != 0) {
@@ -133,7 +125,7 @@ special_open:
     fd = syscall(337, -1, filename, flags, mode, &addr, &addr_fast);
     *result = fd;
     if (fd < 0) {
-        bypassd_log("[%s]: Special open returned = %d\n", __func__, fd);
+        userlib_log("[%s]: Special open returned = %d\n", __func__, fd);
         return 0;
     }
 
@@ -156,10 +148,10 @@ special_open:
     if (bypassd_info->nr_queues == 0) {
         bypassd_info->nr_queues = bypassd_create_queues(BYPASSD_NUM_QUEUES);
         if (bypassd_info->nr_queues == 0) {
-            bypassd_log("[%s]: Failed to create user queues\n", __func__);
+            userlib_log("[%s]: Failed to create user queues\n", __func__);
             return -1;
         } else {
-            bypassd_log("[%s]: Created %d queues\n", __func__, bypassd_info->nr_queues);
+            userlib_log("[%s]: Created %d queues\n", __func__, bypassd_info->nr_queues);
         }
     }
     // Per file queue with hashing to handle limited number of queues
@@ -170,7 +162,7 @@ special_open:
 
     bypassd_info->nr_open_files++; // TODO: No use for now
 
-    bypassd_log("[bypassd_open]: tid=%ld filename:%s fd:%d fva:0x%lx\n", bypassd_gettid(), filename, fd, fp->fva);
+    userlib_log("[bypassd_open]: tid=%ld filename:%s fd:%d fva:0x%lx\n", bypassd_gettid(), filename, fd, fp->fva);
 
     return 0;
 }
@@ -186,7 +178,7 @@ int bypassd_close(int fd, int *result) {
 
     *result = 0;
 
-    bypassd_log("[bypassd_close]: tid=%ld fd=%d\n", bypassd_gettid(), fp->fd);
+    userlib_log("[bypassd_close]: tid=%ld fd=%d\n", bypassd_gettid(), fp->fd);
 
     return 0;
 }
@@ -199,7 +191,7 @@ int bypassd_get_lba(struct bypassd_file *fp, size_t len, loff_t offset,
 
     slba = get_physical_frame_fast((void *)fp->fva, offset/PAGE_SIZE);
     if (slba == 0) {
-        bypassd_log("[%s]: get_lba failed @ offset:%ld\n", __func__, offset);
+        userlib_log("[%s]: get_lba failed @ offset:%ld\n", __func__, offset);
         return 1;
     }
     // TODO: In real BypassD, we don't need to issue multiple IOs, IOMMU will
@@ -298,7 +290,7 @@ int bypassd_read(struct bypassd_file *fp, char* buf, size_t len, loff_t offset, 
         nvme_setup_prp(req, PAGE_ALIGN(io_size)/PAGE_SIZE);
         nvme_setup_rw_cmd(req, fp, nvme_cmd_read, slba, num_blks*BLK_SIZE);
 
-        bypassd_log("[bypassd_read]: tid=%lu lba:%llu offset:%llu len:%lu\n", bypassd_gettid(), \
+        userlib_log("[bypassd_read]: tid=%lu lba:%llu offset:%llu len:%lu\n", bypassd_gettid(), \
                     req->cmd->slba, offset, req->cmd->length);
 
         nvme_submit_cmd(queue, req->cmd);
@@ -404,7 +396,7 @@ int bypassd_write(struct bypassd_file *fp, char* buf, size_t len, loff_t offset,
     while (cnt > 0) {
         ret = bypassd_get_lba(fp, cnt, offset, &slba, &io_size);
         if (ret != 0) {
-            bypassd_log("[%s]: Failed to get LBA\n", __func__);
+            userlib_log("[%s]: Failed to get LBA\n", __func__);
             *result = -EINVAL;
             return 0;
         }
@@ -435,7 +427,7 @@ int bypassd_write(struct bypassd_file *fp, char* buf, size_t len, loff_t offset,
         nvme_setup_prp(req, buf_size/PAGE_SIZE);
         nvme_setup_rw_cmd(req, fp, nvme_cmd_write, slba, io_size);
 
-        bypassd_log("[%s]: Submitting IO: lba:%lld cmdid:%d len:%d\n", __func__, \
+        userlib_log("[%s]: Submitting IO: lba:%lld cmdid:%d len:%d\n", __func__, \
                     req->cmd->slba, req->cmd->command_id, req->cmd->length);
 #ifndef ASYNC_WRITES
         nvme_submit_cmd(queue, req->cmd);
@@ -543,30 +535,30 @@ void bypassd_exit() {
 
     if (__atomic_compare_exchange_n(&bypassd_initialized, &initialized, 0, false,
                 __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {
-        bypassd_log("[bypassd_exit]: Already exited\n");
+        userlib_log("[bypassd_exit]: Already exited\n");
         return;
     }
 
-    bypassd_log("Avg dev latency=%f %f %d\n", avg/scount, avg, scount);
-    bypassd_log("Avg software overhead=%f\n", bypassd_avg/bypassd_count);
-    bypassd_log("Avg total latency=%f\n", total_avg/total_count);
+    userlib_log("Avg dev latency=%f %f %d\n", avg/scount, avg, scount);
+    userlib_log("Avg software overhead=%f\n", bypassd_avg/bypassd_count);
+    userlib_log("Avg total latency=%f\n", total_avg/total_count);
 
-    bypassd_log("Deleting queues...\n");
+    userlib_log("Deleting queues...\n");
     bypassd_delete_queues();
-    bypassd_log("Freeing buffers...\n");
+    userlib_log("Freeing buffers...\n");
     bypassd_release_bounce_buffers();
-    bypassd_log("Freeing PRP buffers...\n");
+    userlib_log("Freeing PRP buffers...\n");
     bypassd_release_prp_buffers();
 
-    bypassd_log("Destroying locks ...\n");
+    userlib_log("Destroying locks ...\n");
     for (i=0; i<MAX_FILES; ++i) {
         pthread_rwlock_destroy(&bypassd_info->bypassd_open_files[i].file_lock);
     }
-    bypassd_log("Exiting..\n");
+    userlib_log("Exiting..\n");
 }
 
 void sig_handler(int sig) {
-    bypassd_log("signal_handler: %d\n", sig);
+    userlib_log("signal_handler: %d\n", sig);
     bypassd_exit();
 }
 
@@ -577,7 +569,7 @@ int bypassd_init() {
 
     if (!__atomic_compare_exchange_n(&bypassd_initialized, &initialized, 1, false,
                 __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {
-        bypassd_log("[bypassd_init]: Already initialized\n");
+        userlib_log("[bypassd_init]: Already initialized\n");
         return 0;
     }
 
@@ -596,7 +588,7 @@ int bypassd_init() {
 
     ret = ioctl(bypassd_info->i_fd, IOCTL_GET_NS_INFO, &bypassd_info->ns_info);
     if (ret != 0) {
-        bypassd_log("[bypassd_init]: NS Info IOCTL failed\n");
+        userlib_log("[bypassd_init]: NS Info IOCTL failed\n");
         return -1;
     }
 
@@ -611,21 +603,21 @@ int bypassd_init() {
 
     bypassd_info->nr_queues = bypassd_create_queues(BYPASSD_NUM_QUEUES);
     if (bypassd_info->nr_queues == 0) {
-        bypassd_log("[bypassd_init]: Failed to create user queues\n");
+        userlib_log("[bypassd_init]: Failed to create user queues\n");
         return -1;
     } else {
-        bypassd_log("[bypassd_init]: Created %d queues\n", bypassd_info->nr_queues);
+        userlib_log("[bypassd_init]: Created %d queues\n", bypassd_info->nr_queues);
     }
 
     ret = bypassd_setup_bounce_buffers(BYPASSD_BUF_POOL_SIZE);
     if (ret == 0) {
-        bypassd_log("[bypassd_init]: Failed to setup any buffers\n");
+        userlib_log("[bypassd_init]: Failed to setup any buffers\n");
         return -1;
     }
 
     ret = bypassd_setup_prp_buffers(BYPASSD_NUM_PRP_BUFFERS);
     if (ret == 0) {
-        bypassd_log("[bypassd_init]: Failed to setup prp buffers\n");
+        userlib_log("[bypassd_init]: Failed to setup prp buffers\n");
         return -1;
     }
 

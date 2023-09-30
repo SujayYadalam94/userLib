@@ -20,10 +20,10 @@ int bypassd_setup_bounce_buffers(size_t mem_pool_size) {
     buf_info.dma_addr_list = malloc(sizeof(__u64) * buf_info.nr_pages);
     ret = ioctl(bypassd_info->i_fd, IOCTL_GET_USER_BUF, &buf_info);
     if (ret != 0) {
-        bypassd_log("[bypassd_setup_buffers]: Error allocating buffer\n");
+        userlib_log("[bypassd_setup_buffers]: Error allocating buffer\n");
         return 0;
     } else if (buf_info.nr_pages != mem_pool_size/PAGE_SIZE) {
-        bypassd_log("[bypassd_setup_buffers]: Allocated partial memory\n");
+        userlib_log("[bypassd_setup_buffers]: Allocated partial memory\n");
     }
 
     while ((i * BBUF_SIZE) < mem_pool_size) {
@@ -41,7 +41,7 @@ int bypassd_setup_bounce_buffers(size_t mem_pool_size) {
 
     free(buf_info.dma_addr_list);
 
-    bypassd_log("[bypassd_setup_buffers]: allocated %d buffers of size %ld\n", i, BBUF_SIZE);
+    userlib_log("[bypassd_setup_buffers]: allocated %d buffers of size %ld\n", i, BBUF_SIZE);
    
     return mem_pool_size;
 }
@@ -60,7 +60,7 @@ int bypassd_setup_prp_buffers(unsigned int num) {
         buf_info.nr_pages = 1;
         ret = ioctl(bypassd_info->i_fd, IOCTL_GET_USER_BUF, &buf_info);
         if (ret != 0) {
-            bypassd_log("[bypassd_setup_prp_list]: Error allocating buffer\n");
+            userlib_log("[bypassd_setup_prp_list]: Error allocating buffer\n");
             break;
         }
 
@@ -83,14 +83,14 @@ void *bypassd_get_bounce_buf(size_t buf_size) {
 
     // TODO: implement merging buffers for larger sizes
     if (buf_size > BBUF_SIZE) {
-        bypassd_log("[%s]: requested size %ld larger than available\n", __func__, buf_size);
+        userlib_log("[%s]: requested size %ld larger than available\n", __func__, buf_size);
         return NULL;
     }
 
     bypassd_spinlock_lock(&bypassd_info->buf_lock);
     ubuf = LIST_FIRST(&bypassd_info->bypassd_buf_list);
     if (!ubuf) {
-        bypassd_log("[bypassd_get_bounce_buf]: No free buffers\n");
+        userlib_log("[bypassd_get_bounce_buf]: No free buffers\n");
         bypassd_spinlock_unlock(&bypassd_info->buf_lock);
         return NULL;
     }
@@ -125,13 +125,13 @@ void bypassd_get_buffer(struct bypassd_req *req, char* user_buf, size_t io_size,
 
         int ret = ioctl(bypassd_info->i_fd, IOCTL_GET_BUF_ADDR, &ubuf_info);
         if (ret != 0) {
-            bypassd_log("[%s]: Get buf addr ioctl failed\n", __func__);
+            userlib_log("[%s]: Get buf addr ioctl failed\n", __func__);
 
             ubuf_info.vaddr = user_buf;
             ubuf_info.nr_pages = nr_pages;
             ret = ioctl(bypassd_info->i_fd, IOCTL_GET_USER_BUF, &ubuf_info);
             if (ret != 0) {
-                bypassd_log("[%s]: Get user buf ioctl also failed\n", __func__);
+                userlib_log("[%s]: Get user buf ioctl also failed\n", __func__);
                 free(ubuf_info.dma_addr_list);
             }
         }
@@ -157,7 +157,7 @@ void bypassd_put_buffer(struct bypassd_req *req)
     struct bypassd_user_buf *buf = req->buf;
 
     if (!req) {
-        bypassd_log("[bypassd_put_buffer]: Invalid argument\n");
+        userlib_log("[bypassd_put_buffer]: Invalid argument\n");
         return;
     }
 
