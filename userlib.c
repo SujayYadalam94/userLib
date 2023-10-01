@@ -575,6 +575,7 @@ int userlib_init() {
     logFile = fopen(LOGFILE_NAME, "w+");
 
     userlib_info = (struct userlib_info*)malloc(sizeof(struct userlib_info));
+    memset(userlib_info, 0, sizeof(struct userlib_info));
 
     // TODO: How to make it flexible instead of hard-coding?
     userlib_info->i_fd = syscall_no_intercept(SYS_open, "/proc/bypassd/nvme0n1/ioctl", O_RDWR);
