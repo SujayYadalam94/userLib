@@ -270,7 +270,7 @@ int shim_do_fsync(int fd, int* result) {
             *result = 0;
         }
         if (fp->data_modified) {
-            bypassd_fdatasync();
+            bypassd_fdatasync(fp);
             fp->data_modified = false;
         }
     } else {
