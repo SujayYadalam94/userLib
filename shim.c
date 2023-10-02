@@ -8,11 +8,15 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <linux/sched.h>
+
 #include <libsyscall_intercept_hook_point.h>
 
 #include "userlib.h"
 
 #define MAX_PATH_LEN 4096 // Max length of the full file path
+
+extern __thread long _tid;
 
 // We use the below prefix to filter I/O accesses going to the NVMe device
 // Change the path to the directory that the device is mounted on
@@ -280,6 +284,26 @@ int shim_do_fsync(int fd, int* result) {
     return 0;
 }
 
+int shim_do_fork(long syscall_number, long arg0, long arg1, long arg2, long arg3, long arg4, long arg5, int* result) {
+    userlib_log("[%s]: fork\n", __func__);
+    *result = syscall_no_intercept(syscall_number, arg0, arg1, arg2, arg3, arg4, arg5);
+    if (*result == 0) {
+        _tid = syscall_no_intercept(SYS_gettid);
+        userlib_log("[%s]: child\n", __func__);
+    }
+    return 0;
+}
+
+int shim_do_clone(long syscall_number, long arg0, long arg1, long arg2, long arg3, long arg4, long arg5, int* result) {
+    userlib_log("[%s]: clone\n", __func__);
+    *result = syscall_no_intercept(syscall_number, arg0, arg1, arg2, arg3, arg4, arg5);
+    if (*result == 0) {
+        _tid = syscall_no_intercept(SYS_gettid);
+        userlib_log("[%s]: child\n", __func__);
+    }
+    return 0;
+}
+
 static int syscall_hook(long syscall_number, long arg0, long arg1,
                         long arg2, long arg3, long arg4, long arg5, long *result) {
     switch (syscall_number) {
@@ -309,6 +333,13 @@ static int syscall_hook(long syscall_number, long arg0, long arg1,
             return shim_do_fdatasync((int)arg0, (int*)result);
         case SYS_fsync:
             return shim_do_fsync((int)arg0, (int*)result);
+        case SYS_fork:
+        case SYS_vfork:
+            return shim_do_fork(syscall_number, arg0, arg1, arg2, arg3, arg4, arg5, (int*)result);
+        case SYS_clone:
+            if (!(arg0 & CLONE_VM)) {
+                return shim_do_clone(syscall_number, arg0, arg1, arg2, arg3, arg4, arg5, (int*)result);
+            }
         case SYS_rename: // do we need this?
         case SYS_truncate:
         case SYS_sync:
