@@ -338,5 +338,8 @@ static __attribute__((destructor)) void finalize(void) {
     userlib_log("Exiting library\n");
 
     userlib_exit();
+
+#ifdef DEBUG
     fclose(logFile);
+#endif
 }
