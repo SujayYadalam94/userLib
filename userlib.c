@@ -511,7 +511,7 @@ int bypassd_ftruncate(struct userlib_file *fp, off_t length, int* result) {
     return 0;
 }
 
-void bypassd_fdatasync() {
+void bypassd_fdatasync(struct userlib_file *fp) {
 #ifdef QUEUE_PER_THREAD
     int i;
     struct userlib_queue *queue;

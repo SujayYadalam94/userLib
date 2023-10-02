@@ -184,7 +184,7 @@ int  bypassd_write(struct userlib_file *fp, char* buf, size_t len, loff_t offset
 int  bypassd_lseek(struct userlib_file *fp, off_t offset, int whence, off_t* result);
 int  bypassd_fallocate(struct userlib_file *fp, int mode, off_t offset, off_t len, int* result);
 int  bypassd_ftruncate(struct userlib_file *fp, off_t length, int* result);
-void bypassd_fdatasync();
+void bypassd_fdatasync(struct userlib_file *fp);
 void userlib_exit();
 int  userlib_init();
 

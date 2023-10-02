@@ -242,7 +242,7 @@ int shim_do_fdatasync(int fd, int* result) {
     if (opened) {
         // If all queues are empty, then we can skip bypassd_fdatasync()
         if (fp->data_modified) {
-            bypassd_fdatasync();
+            bypassd_fdatasync(fp);
             fp->data_modified = false;
         }
         *result = 0;
