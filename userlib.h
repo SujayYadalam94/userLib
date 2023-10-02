@@ -33,7 +33,7 @@
 #define FALLOC_SIZE             16                  // Append optimization: preallocate blocks
 
 #define MAX_FILES               1024
-#define BYPASSD_NUM_QUEUES      16
+#define BYPASSD_NUM_QUEUES      20
 
 #define LOGFILE_NAME            "userlib.log"
 

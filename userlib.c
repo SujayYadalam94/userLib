@@ -572,7 +572,13 @@ int userlib_init() {
     // TODO: which signals to capture?
     signal(SIGUSR1, sig_handler); // for filebench
 
+#ifdef DEBUG
     logFile = fopen(LOGFILE_NAME, "w+");
+    if (logFile == NULL) {
+        fprintf(stderr, "[%s]: Failed to open log file\n", __func__);
+        return -1;
+    }
+#endif
 
     userlib_info = (struct userlib_info*)malloc(sizeof(struct userlib_info));
     memset(userlib_info, 0, sizeof(struct userlib_info));
